@@ -270,7 +270,7 @@ export interface BotState {
  * thread hides the trigger and shows only what the bot chose to say.
  */
 export interface MessageOrigin {
-  kind: "bot" | "routine" | "check-in" | "email" | "webhook" | "app" | "crawl"
+  kind: "bot" | "routine" | "task" | "check-in" | "email" | "webhook" | "app" | "crawl"
   /** Bot or routine name, email sender, webhook source, app name, or crawled host. */
   name: string
   avatar?: BotAvatarKind

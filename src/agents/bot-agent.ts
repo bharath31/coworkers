@@ -98,6 +98,7 @@ import type { UserHub } from "./user-hub"
 import { LoopGuard, shapeToolResults } from "./guards"
 import { repairInterruptedToolPart } from "./interrupted-tool"
 import { requireBrowserApproval } from "./policy-migrations"
+import { backgroundTaskSummaries } from "./background-tasks"
 import { MAX_MEMORY_CHARS, appendFact } from "./memory"
 import { languageModel, pickModel } from "./models"
 import {
@@ -1512,6 +1513,30 @@ export class BotAgent extends Think<Env, BotState> {
             hops,
             ...(attachments.files.length ? { files: attachments.files } : {}),
           })
+        },
+      }),
+
+      start_background_task: tool({
+        description:
+          "Accept a self-contained task to run after this reply. Use this when the user wants to leave work running and receive its result later. The task appears in Background tasks and sends a push when it finishes. Tasks on this bot run one at a time; use message_bot to delegate independent work to other bots in parallel.",
+        inputSchema: z.object({
+          title: z.string().trim().min(1).max(80),
+          prompt: z.string().trim().min(1).max(4000),
+        }),
+        execute: async ({ title, prompt }, { toolCallId }) => {
+          const origin: MessageOrigin = { kind: "task", name: title }
+          const taskPrompt = `[Background task: ${title}]\n${prompt}\n\nThis is work the user explicitly asked you to finish. Complete it and report the result, including any blockers. Do not reply ${NO_UPDATE}.`
+          const submission = await this.submitAs(origin, taskPrompt, {
+            background: true,
+            key: `task:${this.botId}:${toolCallId}`,
+          })
+          return {
+            accepted: submission.accepted,
+            taskId: submission.submissionId,
+            status: submission.status,
+            title,
+            note: "The task is queued on this bot and will start after the current turn.",
+          }
         },
       }),
 
@@ -3076,9 +3101,10 @@ export class BotAgent extends Think<Env, BotState> {
       ...(options.hops ? { hops: options.hops } : {}),
       ...(options.routine ? { routine: options.routine } : {}),
     }
-    await this.runTurn({
+    return this.runTurn({
       mode: "submit",
       idempotencyKey: options.key,
+      metadata: { origin, background: options.background === true },
       input: {
         id: crypto.randomUUID(),
         role: "user",
@@ -3468,6 +3494,24 @@ export class BotAgent extends Think<Env, BotState> {
       : this
           .sql<RoutineRunRow>`SELECT * FROM routine_runs ORDER BY started_at DESC LIMIT 50`
     return rows.map(toRoutineRun)
+  }
+
+  /** Recent durable user-started tasks, newest first. */
+  @callable()
+  async getBackgroundTasks() {
+    return backgroundTaskSummaries(await this.listSubmissions({ limit: 100 }))
+  }
+
+  /** Cancel only submissions created by the background-task tool. */
+  @callable()
+  async cancelBackgroundTask(submissionId: string) {
+    const submission = await this.inspectSubmission(submissionId)
+    const metadata = submission?.metadata as
+      { origin?: { kind?: string } } | undefined
+    if (!submission || metadata?.origin?.kind !== "task") {
+      throw new Error("Background task not found.")
+    }
+    return this.cancelSubmission(submissionId, "Cancelled by user")
   }
 
   /** What earlier runs of this routine told the user (see routinePrompt). */
