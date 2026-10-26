@@ -19,7 +19,7 @@
 - [ ] Add exact-device posture restrictions once Cloudflare has enrolled device records to select.
 - [x] Deploy the secured Worker and verify the Access policy, custom domain mapping, and closed `workers.dev` hostname.
 - [ ] Verify OTP, device posture, and WebSocket access from enrolled devices.
-- [ ] Commit and push the implementation branch to the fork.
+- [x] Commit and push the implementation branch to the fork.
 
 ## Later phases
 
