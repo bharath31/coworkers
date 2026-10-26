@@ -5,6 +5,7 @@
 
 import type { RobotHeadShape } from "robot-heads"
 import type { DeploymentModels, ModelSettings } from "./models"
+import type { WorkspaceInfo } from "./workspaces"
 
 export type BotStatus = "idle" | "thinking" | "working" | "action_needed"
 
@@ -87,6 +88,8 @@ export interface AppCatalog {
 export interface HubState {
   bots: BotSummary[]
   connections: Connection[]
+  /** The currently connected UserHub is a private or shared workspace. */
+  workspace?: WorkspaceInfo
   /** Account-wide model choice. Absent on hubs created before models were configurable. */
   models?: ModelSettings
   /** The deployment's own models and gateway, refreshed on every start. */

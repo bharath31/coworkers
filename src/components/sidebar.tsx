@@ -12,6 +12,7 @@ import {
   BellIcon,
   BellRingingIcon,
   BellSlashIcon,
+  CaretDownIcon,
   GearSixIcon,
   MagnifyingGlassIcon,
   PlusIcon,
@@ -119,6 +120,7 @@ function BotRow({ bot, active }: { bot: BotSummary; active: boolean }) {
     <Link
       to="/bots/$botId"
       params={{ botId: bot.id }}
+      search={true}
       className={`pressable flex items-center gap-3 rounded-xl px-2.5 py-2 outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus ${
         active ? "bg-(--fill-active)" : "hover:bg-(--fill-hover)"
       }`}
@@ -184,12 +186,19 @@ export function Sidebar() {
         b.preview.toLowerCase().includes(needle)
     )
   }, [hub.state.bots, query])
+  const currentWorkspace =
+    hub.workspaces.find((workspace) => workspace.id === hub.workspaceId) ??
+    hub.workspaces[0]
 
   async function createBot() {
     setCreating(true)
     try {
       const bot = await hub.createBot()
-      await navigate({ to: "/bots/$botId", params: { botId: bot.id } })
+      await navigate({
+        to: "/bots/$botId",
+        params: { botId: bot.id },
+        search: true,
+      })
     } finally {
       setCreating(false)
     }
@@ -197,6 +206,46 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-full w-full flex-col">
+      <div className="col-header">
+        <DropdownMenu>
+          <DropdownMenu.Trigger
+            render={(props) => (
+              <button
+                {...props}
+                type="button"
+                aria-label={`Workspace: ${currentWorkspace?.name ?? "Private"}`}
+                className="flex h-9 min-w-0 flex-1 items-center justify-between gap-2 rounded-full bg-(--fill-hover) px-3 text-sm font-medium text-kumo-default hover:bg-(--fill-active)"
+              >
+                <span className="truncate">
+                  {currentWorkspace?.name ?? "Private"}
+                </span>
+                <CaretDownIcon
+                  size={16}
+                  className="shrink-0 text-kumo-subtle"
+                />
+              </button>
+            )}
+          />
+          <DropdownMenu.Content side="bottom" align="start">
+            {hub.workspaces.map((workspace) => (
+              <DropdownMenu.Item
+                key={workspace.id}
+                onClick={() =>
+                  void navigate({
+                    to: "/",
+                    search:
+                      workspace.id === hub.viewer.id
+                        ? {}
+                        : { space: workspace.id },
+                  })
+                }
+              >
+                {workspace.name}
+              </DropdownMenu.Item>
+            ))}
+          </DropdownMenu.Content>
+        </DropdownMenu>
+      </div>
       <div className="col-header">
         {/* The 28px button sits 4px inside the 36px pill. */}
         <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-full bg-(--fill-hover) pr-1 pl-3 text-kumo-subtle focus-within:ring-2 focus-within:ring-kumo-focus">
@@ -266,7 +315,12 @@ export function Sidebar() {
           <Tooltip
             content="Settings"
             render={
-              <Link to="/settings" aria-label="Settings" className="icon-btn">
+              <Link
+                to="/settings"
+                search={true}
+                aria-label="Settings"
+                className="icon-btn"
+              >
                 <GearSixIcon size={20} />
               </Link>
             }

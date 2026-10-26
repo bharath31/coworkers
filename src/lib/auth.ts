@@ -1,4 +1,10 @@
 import { env } from "cloudflare:workers"
+import {
+  canAccessWorkspace as isAllowedWorkspace,
+  parseHouseholdMembers,
+  workspacesFor,
+} from "./workspaces"
+import type { WorkspaceInfo } from "./workspaces"
 
 /**
  * Who is making this request.
@@ -13,6 +19,31 @@ export const DEMO_USER_ID = "demo"
 export interface Identity {
   id: string
   email: string | null
+}
+
+function householdMembers() {
+  return parseHouseholdMembers(env.HOUSEHOLD_MEMBERS)
+}
+
+/** Accessible workspaces for this signed-in identity. */
+export function accessibleWorkspaces(identity: Identity): WorkspaceInfo[] {
+  return workspacesFor(
+    identity,
+    householdMembers(),
+    env.HOUSEHOLD_WORKSPACE_ID,
+    import.meta.env.DEV
+  )
+}
+
+/** Server-side authorization for a private or household Durable Object. */
+export function canAccessWorkspace(identity: Identity, workspaceId: string) {
+  return isAllowedWorkspace(
+    identity,
+    workspaceId,
+    householdMembers(),
+    env.HOUSEHOLD_WORKSPACE_ID,
+    import.meta.env.DEV
+  )
 }
 
 /** Thrown when Access is configured and the request did not pass it. */

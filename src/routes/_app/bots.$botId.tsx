@@ -58,9 +58,17 @@ function batchAnswered(messages: UIMessage[]) {
 }
 
 export const Route = createFileRoute("/_app/bots/$botId")({
-  loader: async ({ params }) => {
-    const snapshot = await getBotSnapshot({ data: params.botId })
-    if (!snapshot) throw redirect({ to: "/" })
+  loaderDeps: ({ search }) => ({ workspaceId: search.space }),
+  loader: async ({ params, deps }) => {
+    const snapshot = await getBotSnapshot({
+      data: { botId: params.botId, workspaceId: deps.workspaceId },
+    })
+    if (!snapshot) {
+      throw redirect({
+        to: "/",
+        search: deps.workspaceId ? { space: deps.workspaceId } : {},
+      })
+    }
     return snapshot
   },
   // Chat is live over a WebSocket; refetching history on every navigation
@@ -71,6 +79,7 @@ export const Route = createFileRoute("/_app/bots/$botId")({
 
 function BotRoute() {
   const { botId } = Route.useParams()
+  const { space } = Route.useSearch()
   const snapshot = Route.useLoaderData()
   const messages = useMemo(
     () => JSON.parse(snapshot.messagesJson) as UIMessage[],
@@ -92,7 +101,11 @@ function BotRoute() {
     <ClientOnly fallback={fallback}>
       <Suspense fallback={fallback}>
         {/* Remount per bot so each gets its own socket and chat state. */}
-        <LiveBot key={botId} botId={botId} initialState={snapshot.state} />
+        <LiveBot
+          key={`${space ?? "private"}:${botId}`}
+          botId={botId}
+          initialState={snapshot.state}
+        />
       </Suspense>
     </ClientOnly>
   )
@@ -118,6 +131,7 @@ function PanelLink({
         <Link
           to={active ? "/bots/$botId" : to}
           params={{ botId }}
+          search={true}
           aria-label={label}
           aria-pressed={active}
           className="icon-btn"
@@ -164,7 +178,9 @@ function BotLayout({
         maxWidth="70%"
         mainMinWidth={420}
         onWidthChange={(px) => setWidth("panel", px)}
-        onClose={() => void navigate({ to: "/bots/$botId", params: { botId } })}
+        onClose={() =>
+          void navigate({ to: "/bots/$botId", params: { botId }, search: true })
+        }
         panel={
           shownPanel === "computer" ? (
             <ComputerPanel />
@@ -240,7 +256,7 @@ function LiveBot({
   const hub = useHub()
   const agent = useAgent<BotAgent, BotState>({
     agent: "bot-agent",
-    name: botInstanceName(hub.viewer.id, botId),
+    name: botInstanceName(hub.workspaceId, botId),
   })
   const state = agent.state ?? initialState
   const chat = useAgentChat({ agent })
