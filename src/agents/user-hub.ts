@@ -428,6 +428,20 @@ export class UserHub extends Agent<Env, HubState> {
     return this.state
   }
 
+  /** The account's sidebar name, stored on its private UserHub. */
+  async profileName(): Promise<string | null> {
+    return (await this.ctx.storage.kv.get<string>("profile-name")) ?? null
+  }
+
+  /** Save a profile name on the authenticated account's private UserHub. */
+  async setProfileName(name: string | null): Promise<void> {
+    if (name === null) {
+      await this.ctx.storage.kv.delete("profile-name")
+      return
+    }
+    await this.ctx.storage.kv.put("profile-name", name)
+  }
+
   // ── Bot-facing (Durable Object RPC) ─────────────────────────────────
 
   /** A bot reports its own status, preview, or new name. */
