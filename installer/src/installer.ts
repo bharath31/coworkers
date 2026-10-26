@@ -346,8 +346,8 @@ export class Installer extends Agent<Env, InstallerState> {
   }
 
   /**
-   * Access in front of Coworkers: an OTP allow list for the app and device
-   * enrollment, with a token-only bypass for inbound webhooks.
+   * Access in front of Coworkers: an email OTP allow list and a
+   * token-only bypass for inbound webhooks.
    */
   private async configureAccess(
     api: CfApi,
@@ -422,14 +422,6 @@ export class Installer extends Agent<Env, InstallerState> {
       destinations: [{ type: "public", uri: `${host}/api/hooks/*` }],
       policies: [bypass.id],
       app_launcher_visible: false,
-    })
-    const warpApp = apps.find((candidate) => candidate.type === "warp")
-    await api.upsertAccessApp(plan.accountId, warpApp?.id ?? null, {
-      type: "warp",
-      allowed_idps: [otp.id],
-      auto_redirect_to_identity: true,
-      session_duration: "24h",
-      policies: [allow.id],
     })
     return { teamDomain: org.auth_domain, aud: app.aud }
   }
