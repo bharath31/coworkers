@@ -937,12 +937,98 @@ function DangerZone() {
   )
 }
 
+function BackgroundTasks() {
+  const { agent } = useBot()
+  const [tasks, setTasks] = useState<
+    Awaited<ReturnType<NonNullable<typeof agent>["stub"]["getBackgroundTasks"]>>
+  >([])
+  const [loading, setLoading] = useState(false)
+  const [cancelling, setCancelling] = useState<string | null>(null)
+
+  async function refresh() {
+    if (!agent) return
+    setLoading(true)
+    try {
+      setTasks(await agent.stub.getBackgroundTasks())
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!agent) return
+    void refresh()
+    const timer = setInterval(() => void refresh(), 10_000)
+    return () => clearInterval(timer)
+  }, [agent])
+
+  async function cancel(id: string) {
+    if (!agent) return
+    setCancelling(id)
+    try {
+      await agent.stub.cancelBackgroundTask(id)
+      await refresh()
+    } finally {
+      setCancelling(null)
+    }
+  }
+
+  return (
+    <Group
+      title="Background tasks"
+      hint="Tasks continue after you leave this chat. Each bot runs its own tasks in order."
+      action={
+        <RowAction
+          label="Refresh background tasks"
+          disabled={!agent || loading}
+          onClick={() => void refresh()}
+        >
+          <ArrowsClockwiseIcon size={16} />
+        </RowAction>
+      }
+    >
+      {tasks.length === 0 ? (
+        <EmptyRow>{agent ? "No background tasks yet" : "Connecting…"}</EmptyRow>
+      ) : (
+        tasks.map((task) => {
+          const active = task.status === "pending" || task.status === "running"
+          return (
+            <Row
+              key={task.id}
+              label={task.title}
+              detail={
+                <span>
+                  {task.status} · {formatAgo(task.createdAt)}
+                  {task.error ? ` · ${task.error}` : ""}
+                </span>
+              }
+            >
+              {active ? (
+                <RowAction
+                  label={`Cancel ${task.title}`}
+                  disabled={cancelling === task.id}
+                  onClick={() => void cancel(task.id)}
+                  danger
+                >
+                  <XIcon size={16} />
+                </RowAction>
+              ) : null}
+            </Row>
+          )
+        })
+      )}
+    </Group>
+  )
+}
+
+
 export function SettingsPanel() {
   return (
     <div className="min-h-0 flex-1 space-y-8 overflow-y-auto px-4 pt-2 pb-6">
       <Identity />
       <Model />
       <OnItsOwn />
+      <BackgroundTasks />
       <OpenItems />
       <Rules />
       <Toolkit />
