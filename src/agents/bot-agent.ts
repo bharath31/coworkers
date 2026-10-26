@@ -97,6 +97,7 @@ import type { TeachRecording, TeachSession } from "./teach"
 import type { UserHub } from "./user-hub"
 import { LoopGuard, shapeToolResults } from "./guards"
 import { repairInterruptedToolPart } from "./interrupted-tool"
+import { requireBrowserApproval } from "./policy-migrations"
 import { MAX_MEMORY_CHARS, appendFact } from "./memory"
 import { languageModel, pickModel } from "./models"
 import {
@@ -625,6 +626,20 @@ export class BotAgent extends Think<Env, BotState> {
   // ── Lifecycle ───────────────────────────────────────────────────────
 
   async onStart() {
+    this.sql`CREATE TABLE IF NOT EXISTS security_migrations (
+      name TEXT PRIMARY KEY,
+      completed_at INTEGER NOT NULL
+    )`
+    const migrationName = "browser-actions-require-approval-v1"
+    const migrated = this.sql<{ name: string }>`
+      SELECT name FROM security_migrations WHERE name = ${migrationName}
+    `[0]
+    if (!migrated) {
+      const rules = requireBrowserApproval(this.state.rules)
+      if (rules !== this.state.rules) this.setState({ ...this.state, rules })
+      this.sql`INSERT INTO security_migrations (name, completed_at)
+        VALUES (${migrationName}, ${Date.now()})`
+    }
     this.sql`CREATE TABLE IF NOT EXISTS activity (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       at INTEGER NOT NULL,
