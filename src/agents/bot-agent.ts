@@ -862,12 +862,6 @@ export class BotAgent extends Think<Env, BotState> {
     const id = pickModel(this.env, this.#models, this.state.model, background)
     return languageModel(this.env, id, {
       settings: this.#models,
-      // Shown on each AI Gateway log entry.
-      metadata: {
-        bot: this.state.name,
-        botId: this.botId,
-        turn: background ? "background" : "chat",
-      },
     })
   }
 

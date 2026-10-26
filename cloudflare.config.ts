@@ -14,8 +14,10 @@ const deploy: Partial<{
   name: string
   model: string
   gateway: string
+  workersDev: boolean
   accessTeamDomain: string
   accessAud: string
+  legacyDemoEmail: string
 }> =
   // The installer packs a release for everyone: never with your values.
   !process.env.COWORKERS_PACKING && DEPLOY_FILE
@@ -41,11 +43,12 @@ export default defineConfig({
     // Custom entry (not "@tanstack/react-start/server-entry") so the Worker
     // can export Durable Object classes and route /agents/* first.
     entrypoint: "./src/server.ts",
-    observability: {
-      enabled: true,
-    },
+    // Do not persist invocation logs or request telemetry by default.
+    observability: { enabled: false },
     // Per-version preview hostnames are not covered by the Access app.
     previewUrls: false,
+    // Off by default; setup opts in when it publishes a protected workers.dev URL.
+    workersDev: deploy.workersDev ?? false,
     exports: {
       // One per user: bot directory, connections, cross-bot routing.
       UserHub: exports.durableObject({ storage: "sqlite" }),
@@ -96,9 +99,8 @@ export default defineConfig({
       // Optional model for background turns (routines, check-ins, email).
       // Empty uses the chat model.
       BACKGROUND_MODEL: bindings.text(""),
-      // AI Gateway every model call goes through (logs, analytics, caching,
-      // rate and spend limits). Empty uses "default", which Cloudflare
-      // creates on first use.
+      // AI Gateway routes model calls. Requests explicitly disable log
+      // collection in src/agents/models.ts. Empty uses Cloudflare's default.
       AI_GATEWAY_ID: bindings.text(deploy.gateway ?? ""),
       // Cloudflare Access in front of the Worker. When both are set, every
       // request must carry a valid Access JWT for this application; without
@@ -106,6 +108,8 @@ export default defineConfig({
       // "<team>.cloudflareaccess.com", ACCESS_AUD the application's AUD tag.
       ACCESS_TEAM_DOMAIN: bindings.text(deploy.accessTeamDomain ?? ""),
       ACCESS_AUD: bindings.text(deploy.accessAud ?? ""),
+      // Preserve existing bot data for the first authenticated account.
+      LEGACY_DEMO_EMAIL: bindings.text(deploy.legacyDemoEmail ?? ""),
       // Domain with Email Routing that forwards to this Worker (catch-all
       // or one rule per bot). Each bot gets <user>.<bot>@EMAIL_DOMAIN.
       // Empty turns inbound email off.

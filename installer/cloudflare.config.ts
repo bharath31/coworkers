@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => ({
     compatibilityDate: "2026-09-01",
     compatibilityFlags: ["nodejs_compat"],
     entrypoint: "./src/worker.ts",
-    observability: { enabled: true },
+    observability: { enabled: false },
     assets: {
       notFoundHandling: "single-page-application",
       runWorkerFirst: ["/api/*", "/agents/*"],

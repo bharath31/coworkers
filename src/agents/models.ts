@@ -40,8 +40,8 @@ export function pickModel(
 
 /**
  * An AI SDK model for `modelId`, through AI Gateway on the `AI` binding.
- * `metadata` lands on the gateway log, so each bot's traffic can be told
- * apart in AI Gateway analytics.
+ * Log collection is disabled for every request so prompts and responses
+ * are not retained by AI Gateway.
  *
  * A third-party model gets the deployment's FALLBACK_MODEL as a fallback
  * when `settings.fallback` is on: no credits, no key or a provider outage
@@ -52,10 +52,12 @@ export function languageModel(
   modelId: string,
   options: {
     settings?: ModelSettings
-    metadata?: Record<string, string>
   } = {}
 ) {
-  const ai = createAI({ binding: env.AI, gateway: gatewayId(env) })
+  const ai = createAI({
+    binding: env.AI,
+    gateway: { id: gatewayId(env), collectLog: false },
+  })
   const settings = options.settings ?? DEFAULT_MODEL_SETTINGS
   const safety = env.FALLBACK_MODEL?.trim() ?? ""
   const fallback =
@@ -67,6 +69,5 @@ export function languageModel(
       : undefined
   return ai(modelId as CloudflareLanguageModelId, {
     ...(fallback ? { fallback } : {}),
-    ...(options.metadata ? { metadata: options.metadata } : {}),
   })
 }

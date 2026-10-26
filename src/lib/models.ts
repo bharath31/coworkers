@@ -278,7 +278,7 @@ export interface DeploymentModels {
 
 /** Result of a one-line test call from the Models page. */
 export type ModelTestResult =
-  | { ok: true; ms: number; reply: string; logId?: string }
+  | { ok: true; ms: number; reply: string }
   | {
       ok: false
       ms: number

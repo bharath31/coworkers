@@ -5,9 +5,8 @@ import { env } from "cloudflare:workers"
  *
  * Put the Worker behind Cloudflare Access and set ACCESS_TEAM_DOMAIN and
  * ACCESS_AUD (the installer does both): every request must then carry a
- * valid Access JWT, and each Access identity gets its own UserHub. Without
- * them (local dev, or an unprotected deploy) everyone is the same `demo`
- * user.
+ * valid Access JWT, and each Access identity gets its own UserHub. Local dev
+ * alone may use the `demo` identity; production fails closed without Access.
  */
 export const DEMO_USER_ID = "demo"
 
@@ -30,7 +29,10 @@ function issuer() {
 }
 
 export async function identify(request: Request): Promise<Identity> {
-  if (!accessConfigured()) return { id: DEMO_USER_ID, email: null }
+  if (!accessConfigured()) {
+    if (import.meta.env.DEV) return { id: DEMO_USER_ID, email: null }
+    throw new Unauthorized("Cloudflare Access is not configured")
+  }
   const token =
     request.headers.get("Cf-Access-Jwt-Assertion") ??
     cookie(request, "CF_Authorization")
@@ -38,7 +40,12 @@ export async function identify(request: Request): Promise<Identity> {
   const claims = await verifyAccessJwt(token)
   const email = typeof claims.email === "string" ? claims.email : null
   if (!email) throw new Unauthorized("Access token has no email")
-  return { id: userIdForEmail(email), email }
+  const legacyOwner = env.LEGACY_DEMO_EMAIL?.trim().toLowerCase()
+  const id =
+    legacyOwner && email.toLowerCase() === legacyOwner
+      ? DEMO_USER_ID
+      : userIdForEmail(email)
+  return { id, email }
 }
 
 export function userIdForEmail(email: string) {

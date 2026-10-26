@@ -184,7 +184,9 @@ and keeps your bots. How it works and how to host it: [`installer/`](installer/R
 ### Option B: one command
 
 ```bash
-git clone https://github.com/fayazara/coworkers && cd coworkers
+export DO_NOT_TRACK=1
+git clone https://github.com/your-account/coworkers && cd coworkers
+git remote add upstream https://github.com/fayazara/coworkers.git
 pnpm install
 cf auth login
 pnpm run setup
@@ -196,8 +198,8 @@ then does what the installer does with the `cf` CLI:
 1. creates the AI Gateway and Web Push keys
 2. deploys once with Access required but not yet set up, so the new URL
    refuses every request instead of being open
-3. sets up Cloudflare Access: your allow list, plus a bypass for shared app
-   links (`/apps`) and webhooks (`/api/hooks`), which carry their own tokens
+3. sets up Cloudflare Access: an email OTP allow list, a restricted Cloudflare
+   One device-enrollment policy, and a webhook-only token bypass
 4. deploys again with the Access application's AUD
 
 Your choices go in `coworkers.deploy.json` and secrets in `.dev.vars.production`.
@@ -217,9 +219,15 @@ With more than one account, prefix `cf` commands with
 **1. Create the AI Gateway**
 
 ```bash
-cf ai-gateway gateways create --id coworkers --authentication --collect-logs \
-  --cache-invalidate-on-update --cache-ttl 0 \
-  --rate-limiting-interval 0 --rate-limiting-limit 0
+cf ai-gateway gateways create --body '{
+  "id": "coworkers",
+  "authentication": true,
+  "collect_logs": false,
+  "cache_invalidate_on_update": true,
+  "cache_ttl": 0,
+  "rate_limiting_interval": 0,
+  "rate_limiting_limit": 0
+}'
 ```
 
 **2. Write `coworkers.deploy.json`** in the repo root. Leaving out the Access
@@ -230,6 +238,7 @@ placeholders that lock it:
 {
   "name": "coworkers",
   "gateway": "coworkers",
+  "workersDev": true,
   "accessTeamDomain": "locked.invalid",
   "accessAud": "locked"
 }
@@ -295,7 +304,7 @@ Set in `cloudflare.config.ts`. Everything has a working default.
 | `MODEL`                  | Default chat model. `@cf/...` = Workers AI, `provider/model` = catalog |
 | `BACKGROUND_MODEL`       | Model for routines, check-ins and email. Empty = the chat model        |
 | `FALLBACK_MODEL`         | Workers AI model a turn retries on when a third-party model fails      |
-| `AI_GATEWAY_ID`          | Gateway for every model call. Empty = `default` (created on first use) |
+| `AI_GATEWAY_ID`          | Gateway for every model call. Prompt/response log collection is disabled |
 | `ACCESS_TEAM_DOMAIN`     | With `ACCESS_AUD`, require a valid Access token on every request       |
 | `ACCESS_AUD`             | The Access application's AUD tag                                       |
 | `QUICK_ACTION_ENGINE`    | `kitesurf` (cheaper) or `chromium` for quick page reads                |
@@ -305,6 +314,9 @@ Set in `cloudflare.config.ts`. Everything has a working default.
 
 The Models page overrides `MODEL` and `BACKGROUND_MODEL` for your account,
 and each bot can pick its own chat model in its settings.
+
+The app does not load web analytics or tracking beacons. Worker invocation
+logs and AI Gateway prompt/response logging are disabled by default.
 
 ## Project layout
 
