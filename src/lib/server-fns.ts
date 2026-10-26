@@ -6,7 +6,6 @@ import { z } from "zod"
 import {
   accessibleWorkspaces,
   canAccessWorkspace,
-  DEMO_USER_ID,
   identify,
 } from "@/lib/auth"
 import { SIDEBAR_COOKIE, parseWidths } from "@/lib/layout-context"
@@ -22,19 +21,13 @@ export interface Viewer {
   avatarUrl?: string
 }
 
-// This is the local demo identity used until Cloudflare Access is configured.
-const DEMO_VIEWER = {
-  label: "Account owner",
-}
-
 function viewerFromIdentity(
   identity: Awaited<ReturnType<typeof identify>>,
   profileName?: string | null
 ): Viewer {
   const { id, email } = identity
   if (profileName) return { id, label: profileName }
-  if (id === DEMO_USER_ID) return { id, ...DEMO_VIEWER }
-  return { id, label: email ?? id }
+  return { id, label: email ?? "You" }
 }
 
 /** Save a display name on the authenticated user's private UserHub. */
