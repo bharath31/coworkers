@@ -260,7 +260,10 @@ function LiveBot({
   })
   const state = agent.state ?? initialState
   const chat = useAgentChat({ agent })
-  const busy = chat.status === "submitted" || chat.status === "streaming"
+  const busy =
+    chat.isRecovering ||
+    chat.status === "submitted" ||
+    chat.status === "streaming"
 
   // Opening a thread clears its unread dot, including for replies that land
   // while it is open.
@@ -354,6 +357,7 @@ function LiveBot({
         bot={state}
         messages={chat.messages}
         busy={busy}
+        recovering={chat.isRecovering}
         botId={botId}
         getLiveView={getLiveView}
         getBrowserFrame={getBrowserFrame}

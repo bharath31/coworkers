@@ -63,6 +63,8 @@ interface ThreadProps {
   messages: UIMessage[]
   /** A turn is in flight (submitted or streaming). */
   busy: boolean
+  /** The server is restoring a turn after a deploy or isolate restart. */
+  recovering?: boolean
   /** For links into the bot's settings (routine cards). */
   botId?: string
   getLiveView?: GetLiveView
@@ -597,6 +599,7 @@ export function Thread({
   bot,
   messages,
   busy,
+  recovering = false,
   botId,
   getLiveView,
   getBrowserFrame,
@@ -743,7 +746,13 @@ export function Thread({
               <Loader size="sm" />
             </span>
             <ShimmerText
-              text={bot.status === "working" ? "Working" : "Thinking"}
+              text={
+                recovering
+                  ? "Recovering"
+                  : bot.status === "working"
+                    ? "Working"
+                    : "Thinking"
+              }
               className="text-[15px]"
             />
           </div>

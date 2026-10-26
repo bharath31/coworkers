@@ -550,7 +550,7 @@ export class BotAgent extends Think<Env, BotState> {
     string,
     { command: string; startedAt: number; result: Promise<unknown> }
   >()
-  /** In memory only: a restart ends any turn, and onStart resets status. */
+  /** Tracks this live attempt for status sweeping; Think recovers turns durably. */
   #turnActive = false
   #lastActivity = 0
 
@@ -713,8 +713,8 @@ export class BotAgent extends Think<Env, BotState> {
     for (const id of Object.keys(this.getMcpServers().servers)) {
       await this.removeMcpServer(id)
     }
-    // A turn cannot survive the isolate going away mid-status, so anything
-    // other than a pending approval is stale on a fresh start.
+    // Think recovers interrupted turns in a durable fiber. Clear the cached
+    // status on wake; the recovery continuation sets it again when it starts.
     if (this.state.status === "thinking" || this.state.status === "working") {
       this.setState({ ...this.state, status: "idle" })
     }
