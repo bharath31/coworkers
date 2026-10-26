@@ -24,6 +24,7 @@
 ## Later phases
 
 - [ ] Phase B: validate and improve browser, computer, durable execution, and team features.
+- [x] Set Alfred's default timezone to Asia/Kolkata.
 - [ ] Phase C: separate Bharath and Sahana workspaces and add the household shared space.
 - [ ] Phase D: configure email and supported app integrations.
 - [ ] Phase E: routines, push notifications, reviewable execution history, and operational polish.
