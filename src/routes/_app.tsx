@@ -6,7 +6,11 @@ import { LayoutProvider, useLayout } from "@/lib/layout-context"
 import { getHubSnapshot } from "@/lib/server-fns"
 
 export const Route = createFileRoute("/_app")({
-  loader: () => getHubSnapshot(),
+  validateSearch: (search: Record<string, unknown>): { space?: string } => ({
+    ...(typeof search.space === "string" ? { space: search.space } : {}),
+  }),
+  loaderDeps: ({ search }) => ({ workspaceId: search.space }),
+  loader: ({ deps }) => getHubSnapshot({ data: deps.workspaceId }),
   // The sidebar is live over a WebSocket; the loader only seeds first paint.
   staleTime: Infinity,
   component: AppLayout,
@@ -37,7 +41,8 @@ function Shell() {
 }
 
 function AppLayout() {
-  const { viewer, hub, sidebarOpen, widths } = Route.useLoaderData()
+  const { viewer, hub, workspaceId, workspaces, sidebarOpen, widths } =
+    Route.useLoaderData()
   return (
     <LayoutProvider initialSidebarOpen={sidebarOpen} initialWidths={widths}>
       {/* WebSockets only exist in the browser. The server (and the first
@@ -45,12 +50,22 @@ function AppLayout() {
           over after hydration. */}
       <ClientOnly
         fallback={
-          <StaticHubProvider viewer={viewer} initial={hub}>
+          <StaticHubProvider
+            viewer={viewer}
+            initial={hub}
+            workspaceId={workspaceId}
+            workspaces={workspaces}
+          >
             <Shell />
           </StaticHubProvider>
         }
       >
-        <LiveHubProvider viewer={viewer} initial={hub}>
+        <LiveHubProvider
+          viewer={viewer}
+          initial={hub}
+          workspaceId={workspaceId}
+          workspaces={workspaces}
+        >
           <Shell />
         </LiveHubProvider>
       </ClientOnly>

@@ -150,6 +150,7 @@ function Model() {
           What this bot thinks with in chat. Background work uses the{" "}
           <Link
             to="/settings"
+            search={true}
             className="text-kumo-default underline decoration-kumo-line underline-offset-2 hover:decoration-current"
           >
             account's background model
@@ -442,7 +443,7 @@ function Toolkit() {
       <li className="border-t border-kumo-line first:border-t-0">
         <Link
           to="/settings"
-          search={{ tab: "connections" }}
+          search={(previous) => ({ ...previous, tab: "connections" })}
           className="flex min-h-14 items-center justify-between gap-4 py-3 pr-5 pl-4 text-sm text-kumo-default outline-none hover:bg-(--fill-hover) focus-visible:bg-(--fill-hover)"
         >
           {hub.state.connections.length === 0
@@ -845,11 +846,15 @@ function DangerZone() {
     const next = hub.state.bots.find((b) => b.id !== botId)
     try {
       if (next) {
-        await navigate({ to: "/bots/$botId", params: { botId: next.id } })
+        await navigate({
+          to: "/bots/$botId",
+          params: { botId: next.id },
+          search: true,
+        })
         await hub.deleteBot(botId)
       } else {
         await hub.deleteBot(botId)
-        await navigate({ to: "/" })
+        await navigate({ to: "/", search: true })
       }
     } finally {
       setDeleting(false)

@@ -8,11 +8,15 @@ import { getHubSnapshot } from "@/lib/server-fns"
 
 export const Route = createFileRoute("/_app/")({
   // Land on the most recently active bot when there is one.
-  beforeLoad: async () => {
-    const { hub } = await getHubSnapshot()
+  beforeLoad: async ({ search }) => {
+    const { hub } = await getHubSnapshot({ data: search.space })
     const latest = hub.bots.toSorted((a, b) => b.updatedAt - a.updatedAt)[0]
     if (latest) {
-      throw redirect({ to: "/bots/$botId", params: { botId: latest.id } })
+      throw redirect({
+        to: "/bots/$botId",
+        params: { botId: latest.id },
+        search: search.space ? { space: search.space } : {},
+      })
     }
   },
   component: Onboarding,
@@ -27,7 +31,11 @@ function Onboarding() {
     setCreating(true)
     try {
       const bot = await hub.createBot()
-      await navigate({ to: "/bots/$botId", params: { botId: bot.id } })
+      await navigate({
+        to: "/bots/$botId",
+        params: { botId: bot.id },
+        search: true,
+      })
     } finally {
       setCreating(false)
     }

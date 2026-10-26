@@ -19,10 +19,7 @@ export function SidePanel({
 }) {
   const { botId } = useBot()
   return (
-    <aside
-      aria-label={title}
-      className="flex h-full flex-col bg-kumo-canvas"
-    >
+    <aside aria-label={title} className="flex h-full flex-col bg-kumo-canvas">
       <div className="col-header justify-between">
         {toolbar ?? (
           <h2 className="pl-1.5 text-[15px] font-medium text-kumo-default">
@@ -32,6 +29,7 @@ export function SidePanel({
         <Link
           to="/bots/$botId"
           params={{ botId }}
+          search={true}
           aria-label={`Close ${title.toLowerCase()}`}
           className="icon-btn"
         >

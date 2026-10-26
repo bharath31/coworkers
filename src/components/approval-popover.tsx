@@ -138,6 +138,7 @@ export function ApprovalPopover({
           <Link
             to="/bots/$botId"
             params={{ botId: bot.id }}
+            search={true}
             onClick={() => setOpen(false)}
             className="mt-3 block text-sm text-kumo-link hover:underline"
           >

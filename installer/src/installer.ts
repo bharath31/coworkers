@@ -296,6 +296,8 @@ export class Installer extends Agent<Env, InstallerState> {
             AI_GATEWAY_ID: plan.gateway,
             ACCESS_TEAM_DOMAIN: progress.teamDomain ?? "",
             ACCESS_AUD: progress.aud ?? "",
+            HOUSEHOLD_WORKSPACE_ID: "household:home",
+            HOUSEHOLD_MEMBERS: JSON.stringify(plan.emails),
           },
           secrets,
           assetsJwt,
