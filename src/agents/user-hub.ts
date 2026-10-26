@@ -60,6 +60,10 @@ export class UserHub extends Agent<Env, HubState> {
     // The deployment's MODEL or gateway may have changed since last start.
     this.setState({
       ...this.state,
+      workspace:
+        this.name === this.env.HOUSEHOLD_WORKSPACE_ID
+          ? { id: this.name, name: "Our Home", kind: "household" }
+          : { id: this.name, name: "Private", kind: "private" },
       models: { ...DEFAULT_MODEL_SETTINGS, ...this.state.models },
       deployment: deploymentModels(this.env),
     })

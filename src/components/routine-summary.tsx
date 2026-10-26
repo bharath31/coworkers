@@ -67,6 +67,7 @@ export function RoutineSummary({
         <Link
           to="/bots/$botId/settings"
           params={{ botId }}
+          search={true}
           className="shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium text-kumo-default outline outline-1 -outline-offset-1 outline-kumo-line transition-colors hover:bg-(--fill-hover) focus-visible:ring-2 focus-visible:ring-kumo-focus"
         >
           Open

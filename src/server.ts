@@ -1,6 +1,6 @@
 import handler from "@tanstack/react-start/server-entry"
 import { getAgentByName, routeAgentEmail, routeAgentRequest } from "agents"
-import { Unauthorized, identify } from "@/lib/auth"
+import { canAccessWorkspace, Unauthorized, identify } from "@/lib/auth"
 import { botInstanceName } from "@/lib/types"
 import { handleAppRequest } from "./agents/apps-runtime"
 import type { UserHub } from "./agents/user-hub"
@@ -20,10 +20,28 @@ function agentInstance(pathname: string) {
   return { agent, instance: decodeURIComponent(instance) }
 }
 
-/** A user may only reach their own hub and their own bots. */
-function ownsInstance(userId: string, agent: string, instance: string) {
-  if (agent === "user-hub") return instance === userId
-  if (agent === "bot-agent") return instance.startsWith(`${userId}:`)
+/** A user may reach their own workspace and shared workspaces they belong to. */
+async function ownsInstance(
+  identity: Awaited<ReturnType<typeof identify>>,
+  agent: string,
+  instance: string,
+  env: Env
+) {
+  if (agent === "user-hub") {
+    return canAccessWorkspace(identity, instance)
+  }
+  if (agent === "bot-agent") {
+    const split = instance.lastIndexOf(":")
+    if (split <= 0 || split === instance.length - 1) return false
+    const workspaceId = instance.slice(0, split)
+    const botId = instance.slice(split + 1)
+    if (!canAccessWorkspace(identity, workspaceId)) return false
+    const hub = await getAgentByName(
+      env.UserHub as unknown as DurableObjectNamespace<UserHub>,
+      workspaceId
+    )
+    return hub.hasBot(botId)
+  }
   return false
 }
 
@@ -35,16 +53,16 @@ export default {
 
     const target = agentInstance(new URL(request.url).pathname)
     if (target) {
-      let userId: string
+      let identity: Awaited<ReturnType<typeof identify>>
       try {
-        userId = (await identify(request)).id
+        identity = await identify(request)
       } catch (err) {
         if (err instanceof Unauthorized) {
           return new Response("Unauthorized", { status: 401 })
         }
         throw err
       }
-      if (!ownsInstance(userId, target.agent, target.instance)) {
+      if (!(await ownsInstance(identity, target.agent, target.instance, env))) {
         return new Response("Forbidden", { status: 403 })
       }
       // Agent WebSockets and agent HTTP (MCP OAuth callbacks).
