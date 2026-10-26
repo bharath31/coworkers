@@ -204,8 +204,8 @@ cf auth login
 pnpm run setup
 ```
 
-For GitHub Actions deployment, configure these repository secrets before
-pushing to `main`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
+To deploy from GitHub Actions, configure these repository secrets, then run
+**Deploy Worker** on `main`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
 `COWORKERS_DEPLOY_CONFIG_JSON` (the private deployment JSON), and
 `COWORKERS_WORKER_SECRETS` (the contents of the private Worker secrets file).
 The workflow writes the private files with owner-only permissions and never
