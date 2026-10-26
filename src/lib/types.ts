@@ -106,7 +106,7 @@ export const ACTION_CLASSES = [
   {
     id: "browser",
     label: "Drive the browser",
-    hint: "Click, type and submit in a real browser",
+    hint: "Real browser actions require approval by default",
   },
   {
     id: "apps",
@@ -130,7 +130,7 @@ export const DEFAULT_RULES: Record<ActionClass, RulePolicy> = {
   files: "allow",
   shell: "allow",
   browse: "allow",
-  browser: "allow",
+  browser: "ask",
   apps: "ask",
   bots: "allow",
   routines: "allow",
