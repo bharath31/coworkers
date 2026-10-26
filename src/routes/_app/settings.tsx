@@ -16,7 +16,8 @@ type Tab = (typeof TABS)[number]["value"]
 export const Route = createFileRoute("/_app/settings")({
   validateSearch: (
     search: Record<string, unknown>
-  ): { tab?: Tab; error?: string } => ({
+  ): { tab?: Tab; error?: string; space?: string } => ({
+    ...(typeof search.space === "string" ? { space: search.space } : {}),
     ...(search.tab === "connections" ? { tab: "connections" as const } : {}),
     // Set by the sign-in callback when an app's OAuth flow fails.
     ...(typeof search.error === "string" ? { error: search.error } : {}),
@@ -58,7 +59,10 @@ function Settings() {
               value={tab}
               onValueChange={(next) =>
                 void navigate({
-                  search: next === "models" ? {} : { tab: next },
+                  search: (previous) => ({
+                    ...previous,
+                    ...(next === "models" ? { tab: undefined } : { tab: next }),
+                  }),
                   replace: true,
                 })
               }

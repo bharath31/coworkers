@@ -10,6 +10,7 @@ import type {
 } from "@/lib/types"
 import type { ModelSettings, ModelTestResult } from "@/lib/models"
 import type { Viewer } from "@/lib/server-fns"
+import type { WorkspaceInfo } from "@/lib/workspaces"
 import type { UserHub } from "@/agents/user-hub"
 
 export interface NewConnection {
@@ -20,6 +21,8 @@ export interface NewConnection {
 
 interface HubContextValue {
   viewer: Viewer
+  workspaceId: string
+  workspaces: WorkspaceInfo[]
   state: HubState
   /** False during SSR and until the WebSocket has delivered state. */
   live: boolean
@@ -81,6 +84,8 @@ export function useHub() {
 interface ProviderProps {
   viewer: Viewer
   initial: HubState
+  workspaceId: string
+  workspaces: WorkspaceInfo[]
   children: ReactNode
 }
 
@@ -92,11 +97,15 @@ function notConnected(): never {
 export function StaticHubProvider({
   viewer,
   initial,
+  workspaceId,
+  workspaces,
   children,
 }: ProviderProps) {
   const value = useMemo<HubContextValue>(
     () => ({
       viewer,
+      workspaceId,
+      workspaces,
       state: initial,
       live: false,
       createBot: notConnected,
@@ -112,22 +121,30 @@ export function StaticHubProvider({
       sharedMemory: null,
       models: null,
     }),
-    [viewer, initial]
+    [viewer, initial, workspaceId, workspaces]
   )
   return <HubContext.Provider value={value}>{children}</HubContext.Provider>
 }
 
 /** Browser only: a WebSocket to the user's UserHub keeps the sidebar live. */
-export function LiveHubProvider({ viewer, initial, children }: ProviderProps) {
+export function LiveHubProvider({
+  viewer,
+  initial,
+  workspaceId,
+  workspaces,
+  children,
+}: ProviderProps) {
   const agent = useAgent<UserHub, HubState>({
     agent: "user-hub",
-    name: viewer.id,
+    name: workspaceId,
   })
   const state = agent.state ?? initial
 
   const value = useMemo<HubContextValue>(
     () => ({
       viewer,
+      workspaceId,
+      workspaces,
       state,
       live: agent.state !== undefined,
       createBot: () => agent.stub.createBot(),
@@ -167,7 +184,7 @@ export function LiveHubProvider({ viewer, initial, children }: ProviderProps) {
             }
           : null,
     }),
-    [viewer, state, agent]
+    [viewer, workspaceId, workspaces, state, agent]
   )
   return <HubContext.Provider value={value}>{children}</HubContext.Provider>
 }

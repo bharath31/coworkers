@@ -14,6 +14,7 @@ const deploy: Partial<{
   name: string
   model: string
   gateway: string
+  emails: string[]
   workersDev: boolean
   accessTeamDomain: string
   accessAud: string
@@ -110,6 +111,9 @@ export default defineConfig({
       ACCESS_AUD: bindings.text(deploy.accessAud ?? ""),
       // Preserve existing bot data for the first authenticated account.
       LEGACY_DEMO_EMAIL: bindings.text(deploy.legacyDemoEmail ?? ""),
+      // Shared family workspace membership follows the OTP email allowlist.
+      HOUSEHOLD_WORKSPACE_ID: bindings.text("household:home"),
+      HOUSEHOLD_MEMBERS: bindings.text(JSON.stringify(deploy.emails ?? [])),
       // Domain with Email Routing that forwards to this Worker (catch-all
       // or one rule per bot). Each bot gets <user>.<bot>@EMAIL_DOMAIN.
       // Empty turns inbound email off.
