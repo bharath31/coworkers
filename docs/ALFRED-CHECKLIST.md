@@ -43,10 +43,12 @@ Access bypass and verify a per-bot token in the Worker.
 - [x] No web analytics/tracking beacons; Worker invocation logs and AI Gateway
       prompt/response collection are disabled by default.
 - [x] Workspace membership checks cover server snapshots and agent routing.
+- [x] Agent-instance routing tests cover private denial, shared-bot access,
+      unknown bot names, and malformed encoded paths.
 - [x] Preserve `origin` for `bharath31/coworkers` and `upstream` for
       `fayazara/coworkers`.
 - [x] PR #4 merged to the fork.
-- [x] Family-workspace authorization tests: 26 total repo tests passed;
+- [x] Family-workspace authorization tests: 31 total repo tests passed;
       root and installer TypeScript checks passed; `cf build` and
       `cf deploy --dry-run` passed.
 - [ ] Deploy latest merged code (requires `cf auth login` in an interactive
