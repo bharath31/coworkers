@@ -13,7 +13,7 @@ Installer Durable Object (one per sign-in; token encrypted at rest)
         ▼
 1. account   workers.dev subdomain, existing install?
 2. gateway   AI Gateway for every model call
-3. access    Zero Trust org, OTP allow list, device enrollment, webhook bypass
+3. access    Zero Trust org, email OTP allow list, webhook bypass
 4. upload    static assets, then the Worker (modules, bindings, DO classes)
 5. publish   workers.dev route or custom domain
 6. wake      wait until the URL answers (with Access in front)
