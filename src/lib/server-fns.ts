@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { getRequest } from "@tanstack/react-start/server"
 import { getAgentByName } from "agents"
 import { env } from "cloudflare:workers"
+import { z } from "zod"
 import {
   accessibleWorkspaces,
   canAccessWorkspace,
@@ -27,12 +28,27 @@ const DEMO_VIEWER = {
 }
 
 function viewerFromIdentity(
-  identity: Awaited<ReturnType<typeof identify>>
+  identity: Awaited<ReturnType<typeof identify>>,
+  profileName?: string | null
 ): Viewer {
   const { id, email } = identity
+  if (profileName) return { id, label: profileName }
   if (id === DEMO_USER_ID) return { id, ...DEMO_VIEWER }
   return { id, label: email ?? id }
 }
+
+/** Save a display name on the authenticated user's private UserHub. */
+export const setProfileName = createServerFn({ method: "POST" })
+  .validator(z.string().max(40).transform((name) => name.trim()))
+  .handler(async ({ data: name }) => {
+    const identity = await identify(getRequest())
+    const hub = await getAgentByName(
+      env.UserHub as unknown as DurableObjectNamespace<UserHub>,
+      identity.id
+    )
+    await hub.setProfileName(name || null)
+    return { name: name || null }
+  })
 
 /**
  * Sidebar state for the first paint. After hydration the browser takes over
@@ -53,7 +69,14 @@ export const getHubSnapshot = createServerFn()
     }> => {
       const request = getRequest()
       const identity = await identify(request)
-      const viewer = viewerFromIdentity(identity)
+      const profileHub = await getAgentByName(
+        env.UserHub as unknown as DurableObjectNamespace<UserHub>,
+        identity.id
+      )
+      const viewer = viewerFromIdentity(
+        identity,
+        await profileHub.profileName()
+      )
       const workspaceId = requestedWorkspaceId ?? identity.id
       if (!canAccessWorkspace(identity, workspaceId)) {
         throw new Response("Forbidden", { status: 403 })
