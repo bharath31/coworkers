@@ -3,17 +3,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "cf dev",
-    "build": "cf build",
-    "preview": "cf build && vite preview",
+    "dev": "DO_NOT_TRACK=1 cf dev",
+    "build": "DO_NOT_TRACK=1 cf build",
+    "preview": "DO_NOT_TRACK=1 cf build && vite preview",
     "test": "vitest run",
-    "deploy": "cf deploy",
+    "deploy": "DO_NOT_TRACK=1 cf deploy",
     "setup": "node scripts/setup.ts",
-    "cf-typegen": "cf workers types",
+    "cf-typegen": "DO_NOT_TRACK=1 cf workers types",
     "db:generate": "drizzle-kit generate",
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx}\"",
-    "typecheck": "cf workers types && tsc --noEmit"
+    "typecheck": "DO_NOT_TRACK=1 cf workers types && tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.154",
@@ -68,7 +68,6 @@
     "prettier-plugin-tailwindcss": "^0.8.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
-    "vitest": "^5.0.3",
-    "web-vitals": "^6.2.2"
+    "vitest": "^5.0.3"
   }
 }

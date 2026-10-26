@@ -38,7 +38,7 @@ export function App() {
       <footer className="pb-6 text-center text-xs text-kumo-subtle">
         Coworkers is open source.{" "}
         <a
-          href="https://github.com/fayazara/coworkers"
+          href="https://github.com/bharath31/coworkers"
           className="underline decoration-kumo-line underline-offset-2 hover:decoration-current"
         >
           Read the code

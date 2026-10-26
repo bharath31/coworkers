@@ -29,7 +29,7 @@ function ownsInstance(userId: string, agent: string, instance: string) {
 
 export default {
   async fetch(request, env) {
-    // Apps authenticate by the link token in their URL, not the user.
+    // Apps require the outer Access policy and their link token.
     const app = await handleAppRequest(request, env)
     if (app) return app
 

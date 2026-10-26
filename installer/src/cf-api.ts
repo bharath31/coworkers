@@ -48,6 +48,7 @@ export interface AccessApp {
   id: string
   aud: string
   name: string
+  type?: string
   domain?: string
 }
 
@@ -254,7 +255,7 @@ export class CfApi {
         json: {
           id,
           authentication: true,
-          collect_logs: true,
+          collect_logs: false,
           cache_invalidate_on_update: true,
           cache_ttl: 0,
           rate_limiting_interval: 0,

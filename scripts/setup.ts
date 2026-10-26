@@ -7,7 +7,7 @@
  *   2. creates the AI Gateway
  *   3. deploys once with Access required but not set up yet, so every
  *      request is refused while the URL is new
- *   4. sets up Access (allow list, plus a bypass for /apps and /api/hooks)
+ *   4. sets up Access (email allow list, device enrollment, and a webhook bypass)
  *   5. deploys again with the Access application's AUD
  *
  * Choices go in coworkers.deploy.json (read by cloudflare.config.ts) and secrets
@@ -18,6 +18,9 @@ import { generateKeyPairSync } from "node:crypto"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { createInterface } from "node:readline/promises"
 import { MODELS, PROVIDERS } from "../src/lib/models.ts"
+
+// The Cloudflare CLI otherwise sends anonymous usage telemetry by default.
+process.env.DO_NOT_TRACK = "1"
 
 const DEPLOY_FILE = "coworkers.deploy.json"
 const LEGACY_DEPLOY_FILE = "bdots.deploy.json"
@@ -34,6 +37,7 @@ interface DeployFile {
   host?: string
   accessTeamDomain?: string
   accessAud?: string
+  workersDev?: boolean
 }
 
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`
@@ -245,7 +249,9 @@ async function main() {
   account ??= await choose("Account", accounts, (a) => a.name)
   console.log(`  Account: ${account.name}`)
 
-  const name = (await ask("Worker name", saved.name ?? "coworkers")).toLowerCase()
+  const name = (
+    await ask("Worker name", saved.name ?? "coworkers")
+  ).toLowerCase()
   const emails = (
     await ask(
       "Who can sign in (comma separated)",
@@ -286,6 +292,8 @@ async function main() {
     emails,
     model,
     gateway,
+    // Setup uses the workers.dev URL and protects it with Access.
+    workersDev: true,
   }
 
   // ── AI Gateway ───────────────────────────────────────────────────
@@ -298,22 +306,41 @@ async function main() {
         "ai-gateway",
         "gateways",
         "create",
-        "--id",
-        gateway,
-        "--authentication",
-        "--collect-logs",
-        "--cache-invalidate-on-update",
-        "--cache-ttl",
-        "0",
-        "--rate-limiting-interval",
-        "0",
-        "--rate-limiting-limit",
-        "0",
+        "--body",
+        JSON.stringify({
+          id: gateway,
+          authentication: true,
+          collect_logs: false,
+          cache_invalidate_on_update: true,
+          cache_ttl: 0,
+          rate_limiting_interval: 0,
+          rate_limiting_limit: 0,
+        }),
       ],
       { accountId }
     )
     console.log(green("  Created"))
   }
+  // Existing gateways may have been created with logging enabled. Keep
+  // routing/billing intact but disable prompt and response retention.
+  await cf(
+    [
+      "ai-gateway",
+      "gateways",
+      "update",
+      gateway,
+      "--body",
+      JSON.stringify({
+        authentication: true,
+        collect_logs: false,
+        cache_invalidate_on_update: true,
+        cache_ttl: 0,
+        rate_limiting_interval: 0,
+        rate_limiting_limit: 0,
+      }),
+    ],
+    { accountId }
+  )
 
   step("Making a key for the doorbell", "Web Push keys")
   console.log(`  ${ensureSecrets()} in ${SECRETS_FILE}`)
@@ -362,10 +389,11 @@ async function main() {
   const idps = await cf<Named[]>(["zero-trust", "identity-providers", "list"], {
     accountId,
   })
-  if (idps.length === 0) {
+  let otp = idps.find((provider) => /one.time pin/i.test(provider.name))
+  if (!otp) {
     // A new organization has no way to sign in yet. An existing one keeps
-    // its own, so other apps do not change.
-    await cf(
+    // its own providers, while this app explicitly selects OTP.
+    otp = await cf<Named>(
       [
         "zero-trust",
         "identity-providers",
@@ -390,7 +418,7 @@ async function main() {
     include: emails.map((email) => ({ email: { email } })),
   })
   const bypass = await upsert("policies", accountId, policies, {
-    name: `coworkers ${name}: share links and webhooks`,
+    name: `coworkers ${name}: token-authenticated webhooks`,
     decision: "bypass",
     include: [{ everyone: {} }],
   })
@@ -403,20 +431,38 @@ async function main() {
     type: "self_hosted",
     name: `coworkers ${name}`,
     destinations: [{ type: "public", uri: host }],
+    allowed_idps: [otp.id],
+    auto_redirect_to_identity: true,
     policies: [allow.id],
-    session_duration: "720h",
+    session_duration: "24h",
     app_launcher_visible: true,
   })
   await upsert("applications", accountId, apps, {
     type: "self_hosted",
+    // Keep the legacy name so setup replaces the old /apps bypass app.
     name: `coworkers ${name}: links`,
-    destinations: [
-      { type: "public", uri: `${host}/apps` },
-      { type: "public", uri: `${host}/api/hooks` },
-    ],
+    destinations: [{ type: "public", uri: `${host}/api/hooks/*` }],
     policies: [bypass.id],
     app_launcher_visible: false,
   })
+  const warpApp = apps.find((candidate) => candidate.name === "Warp Login App")
+  const warpArgs = warpApp
+    ? ["zero-trust", "access", "applications", "update", warpApp.id]
+    : ["zero-trust", "access", "applications", "create"]
+  await cf(
+    [
+      ...warpArgs,
+      "--body",
+      JSON.stringify({
+        type: "warp",
+        allowed_idps: [otp.id],
+        auto_redirect_to_identity: true,
+        session_duration: "24h",
+        policies: [allow.id],
+      }),
+    ],
+    { accountId }
+  )
   if (!app.aud)
     throw new Error("Access did not return the application's AUD tag.")
   console.log(

@@ -156,7 +156,7 @@ const manifest: ReleaseManifest = {
     modules,
     compatibilityDate: config.compatibilityDate,
     compatibilityFlags: config.compatibilityFlags,
-    observability: config.observability ?? { enabled: true },
+    observability: config.observability ?? { enabled: false },
     durableObjects: Object.entries(config.exports)
       .filter(([, e]) => e.type === "durable-object")
       .map(([name]) => name),

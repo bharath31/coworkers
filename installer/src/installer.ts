@@ -346,9 +346,8 @@ export class Installer extends Agent<Env, InstallerState> {
   }
 
   /**
-   * Access in front of Coworkers: an allow list for the app, and a bypass for
-   * the two paths outsiders use (shared app links and webhooks), which
-   * carry their own tokens.
+   * Access in front of Coworkers: an OTP allow list for the app and device
+   * enrollment, with a token-only bypass for inbound webhooks.
    */
   private async configureAccess(
     api: CfApi,
@@ -374,7 +373,9 @@ export class Installer extends Agent<Env, InstallerState> {
     // A brand-new organization has no way to sign in yet. An existing one
     // keeps its own identity providers, so other apps do not change.
     const idps = await api.identityProviders(plan.accountId)
-    if (idps.length === 0) await api.createOneTimePin(plan.accountId)
+    const otp =
+      idps.find((provider) => provider.type === "onetimepin") ??
+      (await api.createOneTimePin(plan.accountId))
 
     const policies = await api.accessPolicies(plan.accountId)
     const policyId = (name: string) =>
@@ -389,7 +390,7 @@ export class Installer extends Agent<Env, InstallerState> {
         include: plan.emails.map((email) => ({ email: { email } })),
       }
     )
-    const bypassName = `coworkers ${plan.name}: share links and webhooks`
+    const bypassName = `coworkers ${plan.name}: token-authenticated webhooks`
     const bypass = await api.upsertAccessPolicy(
       plan.accountId,
       policyId(bypassName),
@@ -406,20 +407,29 @@ export class Installer extends Agent<Env, InstallerState> {
       type: "self_hosted",
       name: mainName,
       destinations: [{ type: "public", uri: host }],
+      allowed_idps: [otp.id],
+      auto_redirect_to_identity: true,
       policies: [allow.id],
-      session_duration: "720h",
+      session_duration: "24h",
       app_launcher_visible: true,
     })
+    // Keep the old app name so updating an existing install removes the
+    // former /apps bypass instead of leaving it behind as an orphan.
     const linksName = `coworkers ${plan.name}: links`
     await api.upsertAccessApp(plan.accountId, appId(linksName), {
       type: "self_hosted",
       name: linksName,
-      destinations: [
-        { type: "public", uri: `${host}/apps` },
-        { type: "public", uri: `${host}/api/hooks` },
-      ],
+      destinations: [{ type: "public", uri: `${host}/api/hooks/*` }],
       policies: [bypass.id],
       app_launcher_visible: false,
+    })
+    const warpApp = apps.find((candidate) => candidate.type === "warp")
+    await api.upsertAccessApp(plan.accountId, warpApp?.id ?? null, {
+      type: "warp",
+      allowed_idps: [otp.id],
+      auto_redirect_to_identity: true,
+      session_duration: "24h",
+      policies: [allow.id],
     })
     return { teamDomain: org.auth_domain, aud: app.aud }
   }
