@@ -1,5 +1,9 @@
 import handler from "@tanstack/react-start/server-entry"
 import { getAgentByName, routeAgentEmail, routeAgentRequest } from "agents"
+import {
+  canRouteAgentInstance,
+  parseAgentInstancePath,
+} from "@/lib/agent-access"
 import { canAccessWorkspace, Unauthorized, identify } from "@/lib/auth"
 import { botInstanceName } from "@/lib/types"
 import { handleAppRequest } from "./agents/apps-runtime"
@@ -13,13 +17,6 @@ export { AppBinding, AppLive } from "./agents/apps-runtime"
 // Backs `browser_execute`: a durable Code Mode runtime in a DO facet.
 export { CodemodeRuntime } from "agents/browser"
 
-/** `/agents/<agent>/<instance>/...` → the instance name, URL-decoded. */
-function agentInstance(pathname: string) {
-  const [, prefix, agent, instance] = pathname.split("/")
-  if (prefix !== "agents" || !agent || !instance) return null
-  return { agent, instance: decodeURIComponent(instance) }
-}
-
 /** A user may reach their own workspace and shared workspaces they belong to. */
 async function ownsInstance(
   identity: Awaited<ReturnType<typeof identify>>,
@@ -27,22 +24,16 @@ async function ownsInstance(
   instance: string,
   env: Env
 ) {
-  if (agent === "user-hub") {
-    return canAccessWorkspace(identity, instance)
-  }
-  if (agent === "bot-agent") {
-    const split = instance.lastIndexOf(":")
-    if (split <= 0 || split === instance.length - 1) return false
-    const workspaceId = instance.slice(0, split)
-    const botId = instance.slice(split + 1)
-    if (!canAccessWorkspace(identity, workspaceId)) return false
-    const hub = await getAgentByName(
-      env.UserHub as unknown as DurableObjectNamespace<UserHub>,
-      workspaceId
-    )
-    return hub.hasBot(botId)
-  }
-  return false
+  return canRouteAgentInstance(identity, agent, instance, {
+    canAccessWorkspace,
+    hasBot: async (workspaceId, botId) => {
+      const hub = await getAgentByName(
+        env.UserHub as unknown as DurableObjectNamespace<UserHub>,
+        workspaceId
+      )
+      return hub.hasBot(botId)
+    },
+  })
 }
 
 export default {
@@ -51,7 +42,7 @@ export default {
     const app = await handleAppRequest(request, env)
     if (app) return app
 
-    const target = agentInstance(new URL(request.url).pathname)
+    const target = parseAgentInstancePath(new URL(request.url).pathname)
     if (target) {
       let identity: Awaited<ReturnType<typeof identify>>
       try {
