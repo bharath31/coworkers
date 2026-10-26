@@ -471,19 +471,15 @@ export class UserHub extends Agent<Env, HubState> {
       const result = await generateText({
         model: languageModel(this.env, modelId, {
           settings: { ...DEFAULT_MODEL_SETTINGS, fallback: false },
-          metadata: { source: "model-test" },
         }),
         prompt:
           "Say hello to the person setting you up, in one short, warm sentence. No preamble.",
         maxOutputTokens: 400,
       })
-      const meta = result.providerMetadata?.cloudflare as
-        { logId?: string } | undefined
       return {
         ok: true,
         ms: Date.now() - started,
         reply: result.text.trim().slice(0, 300) || "(empty reply)",
-        logId: meta?.logId,
       }
     } catch (err) {
       const code =

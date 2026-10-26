@@ -10,8 +10,8 @@ import type { UserHub } from "./user-hub"
  *
  *   /apps/<userId>/<botId>/<slug>/<token>/<path>
  *
- * The token is a per-link capability, so links work without a login (put
- * `/apps/*` in a Cloudflare Access bypass policy, like `/api/hooks/*`).
+ * The token is a per-link capability. Production also requires the main
+ * Cloudflare Access policy; do not add `/apps/*` to an Access bypass policy.
  * Responses carry a CSP `sandbox`, so app code runs in an opaque origin
  * and cannot reach the Coworkers UI, its cookies, or the agent sockets.
  *

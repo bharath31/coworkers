@@ -349,7 +349,7 @@ export function Setup({
         </Row>
         <Row
           label="AI Gateway"
-          detail="Logs, analytics and spend limits for every call"
+          detail="Private model routing and Unified Billing for every call"
         >
           <input
             aria-label="AI Gateway name"
