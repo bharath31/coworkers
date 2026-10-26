@@ -21,33 +21,45 @@ One Worker runs everything. There are three kinds of Durable Objects:
 
 ```mermaid
 flowchart LR
-  UI["Web app<br/>TanStack Start + Kumo"]
+  UI["Account owner + Family member<br/>browser"]
+  Access["Cloudflare Access<br/>email OTP allowlist"]
   W["Worker<br/>src/server.ts"]
-  Hub["UserHub<br/>1 per user"]
-  Bot["BotAgent<br/>1 per bot"]
+  Private["Private UserHub<br/>one per person"]
+  Home["Our Home UserHub<br/>shared"]
+  Bot["BotAgent<br/>one per workspace bot"]
   Live["AppLive<br/>1 per bot-built app"]
 
-  UI -- "WebSocket" --> W
-  W --> Hub
+  UI --> Access --> W
+  W --> Private
+  W --> Home
+  Private --> Bot
+  Home --> Bot
   W --> Bot
   W -- "/apps/*" --> Live
-  Hub <-- "RPC" --> Bot
+  Private <-- "RPC" --> Bot
+  Home <-- "RPC" --> Bot
 
   Bot --> AI["Workers AI /<br/>AI Gateway"]
   Bot --> BR["Browser Run"]
   Bot --> DW["Dynamic Workers"]
-  Hub --> MCP["Your apps<br/>(MCP / Executor)"]
+  Private --> MCP["Your apps<br/>(MCP / Executor)"]
+  Home --> MCP
 ```
 
 | Durable Object | What it owns                                                        |
 | -------------- | ------------------------------------------------------------------- |
-| `UserHub`      | Your bot list, app connections, shared memory, push subscriptions    |
-| `BotAgent`     | One bot: chat, memory, rules, routines, files, browser, secrets      |
+| `UserHub`      | A person's private bot list or the shared household bot list, connections, memory, and push subscriptions |
+| `BotAgent`     | One bot in one workspace: chat, memory, rules, routines, files, browser, secrets      |
 | `AppLive`      | Live updates for a web app a bot built                              |
 
 - Each bot keeps everything in its own SQLite. There's no separate database.
 - You sign in to an app once, on the hub. Every bot uses that connection.
-- The Worker only lets you reach your own hub and your own bots.
+- The Worker checks the Access identity against the workspace before routing
+  snapshots or agent WebSockets. Each person has a private workspace; members
+  on the setup email allowlist can also use **Our Home**.
+- Bot-built app links require both Cloudflare Access and their app link token.
+  Only inbound webhooks have an Access bypass, and each webhook still requires
+  its per-bot capability token.
 
 ## What a bot can do
 
@@ -153,7 +165,7 @@ pnpm install
 ```
 
 ```bash
-npx wrangler login
+cf auth login
 ```
 
 ```bash
@@ -162,7 +174,7 @@ pnpm dev
 
 Then open http://localhost:3000.
 
-- **Why Wrangler login?** Workers AI and Browser Run can't run locally, so dev
+- **Why Cloudflare login?** Workers AI and Browser Run can't run locally, so dev
   calls your real account for those two. Everything else runs on disk under
   `.cloudflare/state/`.
 - **More than one account?** Prefix with `CLOUDFLARE_ACCOUNT_ID=<id>`.
@@ -198,8 +210,8 @@ then does what the installer does with the `cf` CLI:
 1. creates the AI Gateway and Web Push keys
 2. deploys once with Access required but not yet set up, so the new URL
    refuses every request instead of being open
-3. sets up Cloudflare Access: an email OTP allow list, a restricted Cloudflare
-   One device-enrollment policy, and a webhook-only token bypass
+3. sets up Cloudflare Access: an email OTP allow list and a path-scoped,
+   token-authenticated webhook bypass (no WARP enrollment is required)
 4. deploys again with the Access application's AUD
 
 Your choices go in `coworkers.deploy.json` and secrets in `.dev.vars.production`.
@@ -258,15 +270,16 @@ Note the `https://<name>.<subdomain>.workers.dev` URL it prints. It answers
 **4. Cloudflare Access.** In [Zero Trust](https://one.dash.cloudflare.com/)
 (the free plan is enough):
 
-1. **Access → Policies → Add a policy:** action **Allow**, include
-   **Emails** for everyone who should get in.
-2. **Add another policy:** action **Bypass**, include **Everyone**.
-3. **Access → Applications → Add → Self-hosted:** public hostname = your
-   Coworkers host, no path, with the Allow policy. Use a public hostname, not a
-   Worker destination: Worker destinations refuse WebSocket upgrades.
-4. **Add a second self-hosted application:** your host with path `apps`, and
-   your host with path `api/hooks`, with the Bypass policy.
-5. Copy the first application's **Application Audience (AUD) Tag** from its
+1. Create an **Allow** policy with the exact email addresses that may sign in.
+   Cloudflare Access sends each person a one-time PIN by email.
+2. Create a self-hosted application for your Coworkers hostname and apply the
+   Allow policy. Use the public hostname, not a Worker destination: Worker
+   destinations refuse WebSocket upgrades.
+3. Create a separate self-hosted application for the path `api/hooks/*` and
+   apply a **Bypass** policy for Everyone. Each webhook still requires its
+   per-bot capability token. Do not bypass `/apps/*`; app links require Access
+   as well as their link token.
+4. Copy the main application's **Application Audience (AUD) Tag** from its
    overview. Your team domain is on Zero Trust's **Settings** page.
 
 **5. Unlock and deploy again.** Put the real values in `coworkers.deploy.json`:
@@ -282,9 +295,10 @@ pnpm run deploy --secrets-file .dev.vars.production
 
 </details>
 
-Either way, Coworkers then checks the Access token on every request and answers
-401 without a valid one, so it stays closed even if Access is turned off by
-mistake. Each email gets its own bots.
+Either way, Coworkers then checks the Access token on every protected request
+and answers 401 without a valid one, so it stays closed even if Access is
+turned off by mistake. Each email gets its own private workspace. Emails on
+the setup allowlist can also access the shared **Our Home** workspace.
 
 ### After deploying: models
 
@@ -307,6 +321,8 @@ Set in `cloudflare.config.ts`. Everything has a working default.
 | `AI_GATEWAY_ID`          | Gateway for every model call. Prompt/response log collection is disabled |
 | `ACCESS_TEAM_DOMAIN`     | With `ACCESS_AUD`, require a valid Access token on every request       |
 | `ACCESS_AUD`             | The Access application's AUD tag                                       |
+| `HOUSEHOLD_WORKSPACE_ID` | Stable Durable Object name for the shared household workspace         |
+| `HOUSEHOLD_MEMBERS`      | Email allowlist that can open the shared household workspace          |
 | `QUICK_ACTION_ENGINE`    | `kitesurf` (cheaper) or `chromium` for quick page reads                |
 | `EMAIL_DOMAIN`           | Turns on inbound email. Each bot gets `<user>.<bot>@<domain>`         |
 | `BROWSER_RUN_ACCOUNT_ID` | With `BROWSER_RUN_API_TOKEN` (secret), turns on the crawl tool        |
