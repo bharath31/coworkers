@@ -176,7 +176,7 @@ export const DEFAULT_PROACTIVE: ProactiveSettings = {
   everyHours: 3,
   quietStart: "22:00",
   quietEnd: "08:00",
-  timezone: "UTC",
+  timezone: "Asia/Kolkata",
   maxPerDay: 6,
   appsInBackground: false,
 }

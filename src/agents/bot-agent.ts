@@ -749,7 +749,7 @@ export class BotAgent extends Think<Env, BotState> {
   // ── Working on its own ──────────────────────────────────────────────
 
   override getDefaultTimezone() {
-    return this.state?.proactive?.timezone || "UTC"
+    return this.state?.proactive?.timezone || "Asia/Kolkata"
   }
 
   /** The check-in loop. Re-read after settings change (reconcile). */
