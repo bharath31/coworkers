@@ -16,11 +16,9 @@ export interface Viewer {
   avatarUrl?: string
 }
 
-// TODO: temporary, hardcoded for screenshots. Replace with the signed-in
-// user's profile once there is real auth.
+// This is the local demo identity used until Cloudflare Access is configured.
 const DEMO_VIEWER = {
-  label: "Fayaz Ahmed",
-  avatarUrl: "https://github.com/fayazara.png",
+  label: "Bharath",
 }
 
 async function viewerFromRequest(request: Request): Promise<Viewer> {

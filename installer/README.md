@@ -13,7 +13,7 @@ Installer Durable Object (one per sign-in; token encrypted at rest)
         ▼
 1. account   workers.dev subdomain, existing install?
 2. gateway   AI Gateway for every model call
-3. access    Zero Trust org, allow list, bypass for /apps and /api/hooks
+3. access    Zero Trust org, OTP allow list, device enrollment, webhook bypass
 4. upload    static assets, then the Worker (modules, bindings, DO classes)
 5. publish   workers.dev route or custom domain
 6. wake      wait until the URL answers (with Access in front)
@@ -92,8 +92,8 @@ pnpm typecheck
 | AI Gateway | the name they pick (default `coworkers`), authenticated |
 | Access organization | only if the account has none, with a one-time PIN login |
 | Access policy | `coworkers <name>: people` (their email list) |
-| Access policy | `coworkers <name>: share links and webhooks` (bypass) |
-| Access applications | `coworkers <name>`, and `coworkers <name>: links` for `/apps` and `/api/hooks` |
+| Access policy | `coworkers <name>: token-authenticated webhooks` (bypass) |
+| Access applications | `coworkers <name>` and `coworkers <name>: links` for `/api/hooks/*` only |
 | Secrets | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, generated on first install |
 
 Coworkers reads `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`, and verifies the Access JWT
@@ -108,6 +108,7 @@ come from the docs and from Cloudflare OS, and have not run against a live
 account:
 
 - the AI Gateway create body (`authentication: true`, no Secrets Store)
-- the `/apps` and `/api/hooks` bypass application, assuming subpaths inherit
+- the token-authenticated `/api/hooks/*` bypass application; `/apps/*` stays
+  behind the main email OTP policy
 - `workers.dev` subdomain creation on an account that has never had a Worker
 - the first install's `new_sqlite_classes` migration through the raw API

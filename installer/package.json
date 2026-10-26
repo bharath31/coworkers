@@ -3,12 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "cf dev",
-    "dev:demo": "cf dev --mode demo",
+    "dev": "DO_NOT_TRACK=1 cf dev",
+    "dev:demo": "DO_NOT_TRACK=1 cf dev --mode demo",
     "pack-release": "node scripts/pack-release.ts",
-    "build": "node scripts/pack-release.ts && cf build",
-    "deploy": "node scripts/pack-release.ts && cf deploy",
-    "typecheck": "cf workers types && tsc --noEmit",
+    "build": "node scripts/pack-release.ts && DO_NOT_TRACK=1 cf build",
+    "deploy": "node scripts/pack-release.ts && DO_NOT_TRACK=1 cf deploy",
+    "typecheck": "DO_NOT_TRACK=1 cf workers types && tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
