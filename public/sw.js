@@ -12,7 +12,7 @@ self.addEventListener("push", (event) => {
   try {
     data = event.data.json()
   } catch {
-    data = { title: "Coworkers", body: event.data.text() }
+    data = { title: "Alfred", body: event.data.text() }
   }
   const url = new URL(data.url || "/", self.location.origin).href
 
@@ -25,7 +25,7 @@ self.addEventListener("push", (event) => {
           (w) => w.focused && w.visibilityState === "visible" && w.url === url
         )
         if (watching) return
-        return self.registration.showNotification(data.title || "Coworkers", {
+        return self.registration.showNotification(data.title || "Alfred", {
           body: data.body || "",
           icon: "/favicon.ico",
           tag: data.tag,

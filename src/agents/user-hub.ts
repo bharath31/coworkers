@@ -294,7 +294,7 @@ export class UserHub extends Agent<Env, HubState> {
   @callable()
   async testPush() {
     return this.push({
-      title: "Coworkers",
+      title: "Alfred",
       body: "Notifications are on. Your bots will reach you here.",
       tag: "test",
       url: "/",
