@@ -4,8 +4,8 @@ import { HOUSEHOLD_WORKSPACE_ID, canAccessWorkspace } from "./workspaces"
 import type { WorkspaceIdentity } from "./workspaces"
 
 const members = ["owner@example.test", "member@example.test"]
-const account-owner = { id: "account-owner", email: "owner@example.test" }
-const family-member = { id: "family-member", email: "member@example.test" }
+const owner = { id: "owner", email: "owner@example.test" }
+const member = { id: "member", email: "member@example.test" }
 const accessWorkspace = (identity: WorkspaceIdentity, workspaceId: string) =>
   canAccessWorkspace(identity, workspaceId, members)
 
@@ -28,10 +28,10 @@ describe("agent instance authorization", () => {
     }
 
     await expect(
-      canRouteAgentInstance(account-owner, "user-hub", "account-owner", access)
+      canRouteAgentInstance(owner, "user-hub", "owner", access)
     ).resolves.toBe(true)
     await expect(
-      canRouteAgentInstance(family-member, "user-hub", HOUSEHOLD_WORKSPACE_ID, access)
+      canRouteAgentInstance(member, "user-hub", HOUSEHOLD_WORKSPACE_ID, access)
     ).resolves.toBe(true)
     expect(hasBot).not.toHaveBeenCalled()
   })
@@ -40,7 +40,7 @@ describe("agent instance authorization", () => {
     const hasBot = vi.fn(async () => true)
 
     await expect(
-      canRouteAgentInstance(family-member, "user-hub", "account-owner", {
+      canRouteAgentInstance(member, "user-hub", "owner", {
         canAccessWorkspace: accessWorkspace,
         hasBot,
       })
@@ -56,7 +56,7 @@ describe("agent instance authorization", () => {
 
     await expect(
       canRouteAgentInstance(
-        family-member,
+        member,
         "bot-agent",
         `${HOUSEHOLD_WORKSPACE_ID}:shared-bot`,
         {
@@ -66,7 +66,7 @@ describe("agent instance authorization", () => {
       )
     ).resolves.toBe(true)
     await expect(
-      canRouteAgentInstance(family-member, "bot-agent", "account-owner:private-bot", {
+      canRouteAgentInstance(member, "bot-agent", "owner:private-bot", {
         canAccessWorkspace: accessWorkspace,
         hasBot,
       })
@@ -83,16 +83,16 @@ describe("agent instance authorization", () => {
     }
 
     await expect(
-      canRouteAgentInstance(account-owner, "bot-agent", "account-owner:missing", access)
+      canRouteAgentInstance(owner, "bot-agent", "owner:missing", access)
     ).resolves.toBe(false)
     await expect(
-      canRouteAgentInstance(account-owner, "bot-agent", "missing-separator", access)
+      canRouteAgentInstance(owner, "bot-agent", "missing-separator", access)
     ).resolves.toBe(false)
     await expect(
-      canRouteAgentInstance(account-owner, "user-hub", "", access)
+      canRouteAgentInstance(owner, "user-hub", "", access)
     ).resolves.toBe(false)
     await expect(
-      canRouteAgentInstance(account-owner, "unregistered", "account-owner", access)
+      canRouteAgentInstance(owner, "unregistered", "owner", access)
     ).resolves.toBe(false)
   })
 })

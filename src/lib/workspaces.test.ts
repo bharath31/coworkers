@@ -10,15 +10,15 @@ const members = ["owner@example.test", "member@example.test"]
 
 describe("workspace access", () => {
   it("keeps private workspaces owner-only and exposes Our Home to members", () => {
-    const account-owner = { id: "account-owner", email: "owner@example.test" }
-    const family-member = { id: "family-member", email: "member@example.test" }
+    const owner = { id: "owner", email: "owner@example.test" }
+    const member = { id: "member", email: "member@example.test" }
 
-    expect(canAccessWorkspace(account-owner, "account-owner", members)).toBe(true)
-    expect(canAccessWorkspace(family-member, "account-owner", members)).toBe(false)
-    expect(canAccessWorkspace(family-member, HOUSEHOLD_WORKSPACE_ID, members)).toBe(
+    expect(canAccessWorkspace(owner, "owner", members)).toBe(true)
+    expect(canAccessWorkspace(member, "owner", members)).toBe(false)
+    expect(canAccessWorkspace(member, HOUSEHOLD_WORKSPACE_ID, members)).toBe(
       true
     )
-    expect(workspacesFor(account-owner, members).map((space) => space.name)).toEqual([
+    expect(workspacesFor(owner, members).map((space) => space.name)).toEqual([
       "Private",
       "Our Home",
     ])
@@ -73,7 +73,7 @@ describe("workspace access", () => {
     )
     expect(
       parseHouseholdMembers(
-        '["Account owner@example.test", "owner@example.test", "bad"]'
+        '["OWNER@example.test", "owner@example.test", "bad"]'
       )
     ).toEqual(["owner@example.test"])
   })

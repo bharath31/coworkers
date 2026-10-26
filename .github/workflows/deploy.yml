@@ -1,0 +1,47 @@
+name: Deploy Worker
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Write private deployment files
+        shell: bash
+        env:
+          DEPLOY_CONFIG: ${{ secrets.COWORKERS_DEPLOY_CONFIG_JSON }}
+          WORKER_SECRETS: ${{ secrets.COWORKERS_WORKER_SECRETS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_CONFIG" || { echo "::error::Set COWORKERS_DEPLOY_CONFIG_JSON in repository Actions secrets"; exit 1; }
+          test -n "$WORKER_SECRETS" || { echo "::error::Set COWORKERS_WORKER_SECRETS in repository Actions secrets"; exit 1; }
+          umask 077
+          printf '%s' "$DEPLOY_CONFIG" > coworkers.deploy.json
+          printf '%s' "$WORKER_SECRETS" > .dev.vars.production
+          chmod 600 coworkers.deploy.json .dev.vars.production
+      - name: Build and deploy
+        run: pnpm run deploy --secrets-file .dev.vars.production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

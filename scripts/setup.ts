@@ -15,7 +15,7 @@
  */
 import { spawn } from "node:child_process"
 import { generateKeyPairSync } from "node:crypto"
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs"
 import { createInterface } from "node:readline/promises"
 import { MODELS, PROVIDERS } from "../src/lib/models.ts"
 
@@ -136,8 +136,13 @@ function readDeploy(): DeployFile {
   return file ? JSON.parse(readFileSync(file, "utf8")) : {}
 }
 
+function writePrivateFile(path: string, contents: string) {
+  writeFileSync(path, contents, { mode: 0o600 })
+  chmodSync(path, 0o600)
+}
+
 function writeDeploy(file: DeployFile) {
-  writeFileSync(DEPLOY_FILE, `${JSON.stringify(file, null, 2)}\n`)
+  writePrivateFile(DEPLOY_FILE, `${JSON.stringify(file, null, 2)}\n`)
 }
 
 /** VAPID keys for Web Push, created once and kept: new keys break subscriptions. */
@@ -168,7 +173,7 @@ function ensureSecrets() {
   for (const name of OPTIONAL_SECRETS) {
     if (!new RegExp(`^${name}=`, "m").test(file)) file += `\n${name}=\n`
   }
-  writeFileSync(SECRETS_FILE, `${file.replace(/\n{2,}/g, "\n").trim()}\n`)
+  writePrivateFile(SECRETS_FILE, `${file.replace(/\n{2,}/g, "\n").trim()}\n`)
   return created ? "created" : "kept"
 }
 

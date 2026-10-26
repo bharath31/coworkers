@@ -21,7 +21,7 @@ One Worker runs everything. There are three kinds of Durable Objects:
 
 ```mermaid
 flowchart LR
-  UI["Account owner + Family member<br/>browser"]
+  UI["User profiles<br/>browser"]
   Access["Cloudflare Access<br/>email OTP allowlist"]
   W["Worker<br/>src/server.ts"]
   Private["Private UserHub<br/>one per person"]
@@ -197,12 +197,19 @@ and keeps your bots. How it works and how to host it: [`installer/`](installer/R
 
 ```bash
 export DO_NOT_TRACK=1
-git clone https://github.com/your-account/coworkers && cd coworkers
+git clone 'https://github.com/your-account/coworkers.git' && cd coworkers
 git remote add upstream https://github.com/fayazara/coworkers.git
 pnpm install
 cf auth login
 pnpm run setup
 ```
+
+For GitHub Actions deployment, configure these repository secrets before
+pushing to `main`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
+`COWORKERS_DEPLOY_CONFIG_JSON` (the private deployment JSON), and
+`COWORKERS_WORKER_SECRETS` (the contents of the private Worker secrets file).
+The workflow writes the private files with owner-only permissions and never
+checks them into Git.
 
 `scripts/setup.ts` asks for the account, a name, who can sign in and a model,
 then does what the installer does with the `cf` CLI:
