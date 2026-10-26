@@ -7,7 +7,7 @@
  *   2. creates the AI Gateway
  *   3. deploys once with Access required but not set up yet, so every
  *      request is refused while the URL is new
- *   4. sets up Access (email allow list, device enrollment, and a webhook bypass)
+ *   4. sets up Access (email OTP allow list and a webhook bypass)
  *   5. deploys again with the Access application's AUD
  *
  * Choices go in coworkers.deploy.json (read by cloudflare.config.ts) and secrets
@@ -445,24 +445,6 @@ async function main() {
     policies: [bypass.id],
     app_launcher_visible: false,
   })
-  const warpApp = apps.find((candidate) => candidate.name === "Warp Login App")
-  const warpArgs = warpApp
-    ? ["zero-trust", "access", "applications", "update", warpApp.id]
-    : ["zero-trust", "access", "applications", "create"]
-  await cf(
-    [
-      ...warpArgs,
-      "--body",
-      JSON.stringify({
-        type: "warp",
-        allowed_idps: [otp.id],
-        auto_redirect_to_identity: true,
-        session_duration: "24h",
-        policies: [allow.id],
-      }),
-    ],
-    { accountId }
-  )
   if (!app.aud)
     throw new Error("Access did not return the application's AUD tag.")
   console.log(
