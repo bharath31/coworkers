@@ -248,6 +248,14 @@ no remote resource is touched.
   `cf deploy --secrets-file <PATH>` (JSON or `.env` format). Never commit
   that file or put secret values in `cloudflare.config.ts`.
 
+- Personal context (real names, email allowlists, custom domains, account IDs,
+  Access AUDs, and personal defaults) must never appear in tracked source,
+  documentation, tests, or commit/PR descriptions. Store it in GitHub Actions
+  secrets for automation and Cloudflare secrets for runtime. Local-only values
+  may live in ignored deployment config or `.dev.vars`; verify those files are
+  ignored. Before pushing, scan the diff for personal context and credentials.
+  If public history contains either, stop and get approval before rewriting it.
+
 ## Server functions vs API routes
 
 This template ships both. They are different things. Pick correctly.
