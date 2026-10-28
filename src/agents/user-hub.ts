@@ -53,6 +53,23 @@ function safeProjectFileName(value: string) {
   return name.slice(0, 180)
 }
 
+function encodeBase64(bytes: Uint8Array) {
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
+function decodeBase64(value: string) {
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes
+}
+
 /**
  * One per user (instance name = user id). Owns the bot directory that powers
  * the sidebar, the user's connections, and routing between bots.
@@ -101,7 +118,7 @@ export class UserHub extends Agent<Env, HubState> {
       size INTEGER NOT NULL,
       shared_by TEXT NOT NULL,
       shared_at INTEGER NOT NULL,
-      content BLOB NOT NULL
+      content TEXT NOT NULL
     )`
     // The deployment's MODEL or gateway may have changed since last start.
     this.setState({
@@ -278,9 +295,18 @@ export class UserHub extends Agent<Env, HubState> {
   async uploadProjectFile(input: {
     name: string
     contentType?: string
-    bytes: Uint8Array
+    base64: string
   }): Promise<ProjectFileSummary> {
-    return this.saveProjectFile(input.name, input.contentType ?? "application/octet-stream", input.bytes, "You")
+    if (input.base64.length > Math.ceil(PROJECT_FILE_MAX_BYTES * 4 / 3) + 4) {
+      throw new Error("Shared files must be smaller than 5 MB.")
+    }
+    let bytes: Uint8Array
+    try {
+      bytes = decodeBase64(input.base64)
+    } catch {
+      throw new Error("File data was not valid base64.")
+    }
+    return this.saveProjectFile(input.name, input.contentType ?? "application/octet-stream", bytes, "You")
   }
 
   @callable()
@@ -296,7 +322,20 @@ export class UserHub extends Agent<Env, HubState> {
 
   @callable()
   async downloadProjectFile(id: string) {
-    return this.getProjectFile(id)
+    const row = this.sql<{
+      id: string
+      name: string
+      contentType: string
+      size: number
+      sharedBy: string
+      sharedAt: number
+      base64: string
+    }>`SELECT id, name, content_type AS contentType, size,
+      shared_by AS sharedBy, shared_at AS sharedAt, content AS base64
+      FROM project_files WHERE id = ${id}`[0]
+    if (!row) return null
+    const { base64, ...file } = row
+    return { file, base64 }
   }
 
   /** Bot-facing RPC: store a file that its owner approved for workspace sharing. */
@@ -328,7 +367,7 @@ export class UserHub extends Agent<Env, HubState> {
     }
     this.sql`INSERT INTO project_files
       (id, name, content_type, size, shared_by, shared_at, content)
-      VALUES (${id}, ${fileName}, ${summary.contentType}, ${summary.size}, ${summary.sharedBy}, ${sharedAt}, ${bytes})`
+      VALUES (${id}, ${fileName}, ${summary.contentType}, ${summary.size}, ${summary.sharedBy}, ${sharedAt}, ${encodeBase64(bytes)})`
     this.sql`DELETE FROM project_files WHERE id NOT IN
       (SELECT id FROM project_files ORDER BY shared_at DESC LIMIT 100)`
     return summary
@@ -343,13 +382,13 @@ export class UserHub extends Agent<Env, HubState> {
       size: number
       sharedBy: string
       sharedAt: number
-      bytes: Uint8Array
+      base64: string
     }>`SELECT id, name, content_type AS contentType, size,
-      shared_by AS sharedBy, shared_at AS sharedAt, content AS bytes
+      shared_by AS sharedBy, shared_at AS sharedAt, content AS base64
       FROM project_files WHERE id = ${id}`[0]
     if (!row) return null
-    const { bytes, ...file } = row
-    return { file, bytes }
+    const { base64, ...file } = row
+    return { file, bytes: decodeBase64(base64) }
   }
 
   @callable()
@@ -544,13 +583,12 @@ export class UserHub extends Agent<Env, HubState> {
     const snapshots = await Promise.all(
       this.state.bots.map(async (summary) => {
         const items: AttentionItem[] = []
-        let bot: BotAgent
         let waiting: Awaited<ReturnType<BotAgent["waitingParts"]>>
         let tasks: Awaited<ReturnType<BotAgent["getBackgroundTasks"]>>
         let openItems: Awaited<ReturnType<BotAgent["listOpenItems"]>>
         let routineRuns: Awaited<ReturnType<BotAgent["getRoutineRuns"]>>
         try {
-          bot = await this.bot(summary.id)
+          const bot = await this.bot(summary.id)
           ;[waiting, tasks, openItems, routineRuns] = await Promise.all([
             bot.waitingParts(),
             bot.getBackgroundTasks(),

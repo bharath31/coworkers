@@ -72,6 +72,23 @@ export interface ProjectFilesApi {
   download: (id: string) => Promise<{ file: ProjectFileSummary; bytes: Uint8Array } | null>
 }
 
+function encodeBase64(bytes: Uint8Array) {
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
+function decodeBase64(value: string) {
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes
+}
+
 export interface MemoryRevision {
   id: number
   at: number
@@ -223,9 +240,13 @@ export function LiveHubProvider({
         agent.state !== undefined
           ? {
               list: () => agent.stub.getProjectFiles(),
-              upload: (input) => agent.stub.uploadProjectFile(input),
+              upload: ({ bytes, ...input }) =>
+                agent.stub.uploadProjectFile({ ...input, base64: encodeBase64(bytes) }),
               remove: (id) => agent.stub.removeProjectFile(id),
-              download: (id) => agent.stub.downloadProjectFile(id),
+              download: async (id) => {
+                const result = await agent.stub.downloadProjectFile(id)
+                return result ? { file: result.file, bytes: decodeBase64(result.base64) } : null
+              },
             }
           : null,
     }),
