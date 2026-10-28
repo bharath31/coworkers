@@ -461,7 +461,7 @@ function Routines() {
   return (
     <Group
       title="Routines"
-      hint="Work it does on a schedule. Ask in chat to set one up, like “every weekday at 8am, tell me what needs my attention.”"
+      hint="Work it does on a schedule or when a webhook arrives. Ask in chat to set one up, then use Test now to preview it safely."
     >
       {state.routines.length === 0 ? (
         <EmptyRow>No routines yet</EmptyRow>
@@ -470,6 +470,7 @@ function Routines() {
           <RoutineCard
             key={routine.id}
             routine={routine}
+            onTest={agent ? () => agent.stub.testRoutine(routine.id).then(() => {}) : undefined}
             onDelete={
               agent
                 ? () => void agent.stub.deleteRoutine(routine.id)

@@ -4,7 +4,11 @@ import type { ReactNode } from "react"
 import type { UIMessage } from "ai"
 import type {
   BotSummary,
+  AttentionItem,
   Connection,
+  GroupChatMessage,
+  GroupChatSummary,
+  ProjectFileSummary,
   HubState,
   PushSubscriptionData,
 } from "@/lib/types"
@@ -45,11 +49,27 @@ interface HubContextValue {
   sharedMemory: SharedMemoryApi | null
   /** Which models bots use. Null until the hub WebSocket is up. */
   models: ModelsApi | null
+  groupChats: GroupChatsApi | null
+  attention: (() => Promise<AttentionItem[]>) | null
+  projectFiles: ProjectFilesApi | null
 }
 
 export interface ModelsApi {
   set: (patch: Partial<ModelSettings>) => Promise<void>
   test: (modelId: string) => Promise<ModelTestResult>
+}
+
+export interface GroupChatsApi {
+  create: (name: string, botIds: string[]) => Promise<GroupChatSummary>
+  messages: (groupId: string) => Promise<GroupChatMessage[]>
+  send: (groupId: string, text: string) => Promise<GroupChatMessage[]>
+}
+
+export interface ProjectFilesApi {
+  list: () => Promise<ProjectFileSummary[]>
+  upload: (input: { name: string; contentType: string; bytes: Uint8Array }) => Promise<ProjectFileSummary>
+  remove: (id: string) => Promise<ProjectFileSummary[]>
+  download: (id: string) => Promise<{ file: ProjectFileSummary; bytes: Uint8Array } | null>
 }
 
 export interface MemoryRevision {
@@ -120,6 +140,9 @@ export function StaticHubProvider({
       push: null,
       sharedMemory: null,
       models: null,
+      groupChats: null,
+      attention: null,
+      projectFiles: null,
     }),
     [viewer, initial, workspaceId, workspaces]
   )
@@ -181,6 +204,28 @@ export function LiveHubProvider({
           ? {
               set: (patch) => agent.stub.setModels(patch),
               test: (modelId) => agent.stub.testModel(modelId),
+            }
+          : null,
+      groupChats:
+        agent.state !== undefined
+          ? {
+              create: (name, botIds) => agent.stub.createGroup(name, botIds),
+              messages: (groupId) => agent.stub.getGroupMessages(groupId),
+              send: (groupId, text) =>
+                agent.stub.sendGroupMessage(groupId, text),
+            }
+          : null,
+      attention:
+        agent.state !== undefined
+          ? () => agent.stub.getAttentionSnapshot()
+          : null,
+      projectFiles:
+        agent.state !== undefined
+          ? {
+              list: () => agent.stub.getProjectFiles(),
+              upload: (input) => agent.stub.uploadProjectFile(input),
+              remove: (id) => agent.stub.removeProjectFile(id),
+              download: (id) => agent.stub.downloadProjectFile(id),
             }
           : null,
     }),

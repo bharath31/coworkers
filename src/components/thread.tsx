@@ -546,7 +546,8 @@ function UserMessage({ message }: { message: UIMessage }) {
     )
   }
   // Check-ins are invisible: only what the bot chose to say shows up.
-  if (origin?.kind === "check-in") return null
+  // Group turns are routing prompts, not user messages in this private thread.
+  if (origin?.kind === "check-in" || origin?.kind === "group") return null
   return (
     <div className="ml-auto w-fit max-w-[75%] rounded-[22px] bg-kumo-contrast px-[18px] py-3 text-[15px] leading-[1.65] text-pretty whitespace-pre-wrap text-kumo-inverse">
       {text}
@@ -627,7 +628,7 @@ export function Thread({
       if (message.role === "user") {
         background = meta.background === true
         turnAt = meta.at
-        if (meta.origin?.kind === "check-in") continue
+        if (meta.origin?.kind === "check-in" || meta.origin?.kind === "group") continue
         rows.push({ message, blocks: [], at: meta.at })
         continue
       }

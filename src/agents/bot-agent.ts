@@ -52,6 +52,7 @@ import type {
   BotInbound,
   BotState,
   BotStatus,
+  ProjectFileSummary,
   BrowserFrame,
   MessageMeta,
   MessageOrigin,
@@ -150,6 +151,9 @@ const TOOL_CLASS: Record<string, ActionClass> = {
   finish_teaching: "browser",
   save_skill: "files",
   save_app: "files",
+  list_project_files: "files",
+  read_project_file: "files",
+  share_project_file: "files",
   delete_app: "files",
 }
 
@@ -197,6 +201,7 @@ const READ_ONLY_TOOLS = new Set([
   "was_reported",
   "list_apps",
   "app_data_list",
+  "list_project_files",
 ])
 /** A foreground turn longer than this gets a push when it finishes. */
 const LONG_TURN_MS = 90_000
@@ -255,6 +260,7 @@ interface RoutinePayload {
   kind: Routine["kind"]
   onlyNew?: boolean
   watch?: RoutineWatch
+  event?: Routine["event"]
 }
 
 interface RoutineRunRow {
@@ -702,6 +708,12 @@ export class BotAgent extends Think<Env, BotState> {
       attempt INTEGER NOT NULL DEFAULT 1,
       note TEXT NOT NULL DEFAULT ''
     )`
+    this.sql`CREATE TABLE IF NOT EXISTS routine_events (
+      routine_id TEXT NOT NULL,
+      event_key TEXT NOT NULL,
+      received_at INTEGER NOT NULL,
+      PRIMARY KEY (routine_id, event_key)
+    )`
     // One row per unprompted message, for the daily cap.
     this.sql`CREATE TABLE IF NOT EXISTS proactive_log (
       at INTEGER NOT NULL
@@ -923,10 +935,11 @@ export class BotAgent extends Think<Env, BotState> {
     let others: Awaited<ReturnType<UserHub["listBots"]>> = []
     let catalog: AppCatalog = { apps: [], tools: [] }
     let sharedMemory = ""
+    let sharedProjectFiles: ProjectFileSummary[] = []
     try {
       const hub = await this.hub()
       let origin: string | null
-      ;[others, catalog, origin, sharedMemory, this.#models] =
+      ;[others, catalog, origin, sharedMemory, this.#models, sharedProjectFiles] =
         await Promise.all([
           hub
             .listBots()
@@ -938,6 +951,7 @@ export class BotAgent extends Think<Env, BotState> {
           // continuations (it lands after the approval response).
           hub.sharedMemory(),
           hub.modelSettings(),
+          hub.listProjectFiles(),
         ])
       this.#origin = origin ?? ""
     } catch (err) {
@@ -967,7 +981,10 @@ export class BotAgent extends Think<Env, BotState> {
         path: `${this.#origin}${this.apps.ownerLink(app.slug).path}`,
         collections: this.apps.collections(app.slug),
       })),
-    })
+    }) +
+      `\n\n# Shared project files\n${sharedProjectFiles.length
+        ? sharedProjectFiles.map((file) => `- ${file.name} (id: ${file.id}, ${file.size} bytes, shared by ${file.sharedBy}). Use read_project_file to open it.`).join("\n")
+        : "No files have been explicitly shared with the workspace."}`
     return {
       model: this.turnModel(),
       instructions: `${system}\n\n${context}`,
@@ -1506,13 +1523,67 @@ export class BotAgent extends Think<Env, BotState> {
             return { delivered: false, error: attachments.error }
           }
           const hub = await this.hub()
+          const origin = metaOf(
+            this.messages.findLast((message) => message.role === "user")
+          ).origin
           // Keyed on the tool call, so a recovered turn that re-runs this call
           // does not deliver the message twice.
+          if (origin?.kind === "group" && origin.groupId) {
+            return hub.relayGroupMessage(origin.groupId, this.botId, to, message, {
+              key: `group:${origin.groupId}:${this.botId}:${toolCallId}`,
+              hops,
+              ...(attachments.files.length ? { files: attachments.files } : {}),
+            })
+          }
           return hub.relayMessage(this.botId, to, message, {
             key: `bot:${this.botId}:${toolCallId}`,
             hops,
             ...(attachments.files.length ? { files: attachments.files } : {}),
           })
+        },
+      }),
+
+      list_project_files: tool({
+        description:
+          "List documents the user explicitly shared with every bot in this workspace. Use this before asking the user to resend project context.",
+        inputSchema: z.object({}),
+        execute: async () => ({ files: await (await this.hub()).listProjectFiles() }),
+      }),
+
+      read_project_file: tool({
+        description:
+          "Copy one explicitly shared project file into your own workspace so you can read it. Use list_project_files to find its id first.",
+        inputSchema: z.object({ id: z.string() }),
+        execute: async ({ id }) => {
+          const shared = await (await this.hub()).getProjectFile(id)
+          if (!shared) return { error: "That shared file no longer exists." }
+          const folder = "/workspace/shared-project"
+          await this.workspace.fs.mkdir(folder, { recursive: true })
+          const path = `${folder}/${shared.file.id}-${slugify(shared.file.name, 100) || "shared-file"}`
+          await this.workspace.fs.writeFile(path, shared.bytes)
+          return { path, name: shared.file.name, size: shared.file.size }
+        },
+      }),
+
+      share_project_file: tool({
+        description:
+          "Share one of your files with every bot in this workspace. This always asks the user first. Share only project material they approved; never share credentials, secrets, personal records, or unrelated files.",
+        inputSchema: z.object({
+          path: z.string().trim().min(1).max(500),
+          name: z.string().trim().min(1).max(180).optional(),
+        }),
+        needsApproval: true,
+        execute: async ({ path, name }) => {
+          const content = await this.readAttachments([path])
+          if ("error" in content) return { shared: false, error: content.error }
+          const file = content.files[0]
+          const summary = await (await this.hub()).saveProjectFile(
+            name ?? file.name,
+            "application/octet-stream",
+            file.bytes,
+            this.state.name
+          )
+          return { shared: true, file: summary }
         },
       }),
 
@@ -1542,7 +1613,7 @@ export class BotAgent extends Think<Env, BotState> {
 
       schedule_routine: tool({
         description:
-          "Schedule work for later. Use `cron` (5-field, UTC) for something recurring, or `at` (ISO 8601 date-time) for a one-off. When it fires you receive `prompt` as a new task, with no memory of this conversation. If you just did the task, write down the method that worked so the routine does not have to rediscover it.",
+          "Schedule work for later with `cron` (5-field, UTC), `at` (ISO 8601 date-time), or `event.source` to run when a webhook arrives with that exact source name. Event routines use this bot's authenticated webhook URL. When a routine runs it receives its prompt as a fresh task. Save the method that worked and include failure and approval boundaries.",
         inputSchema: z.object({
           name: z.string().describe("Short label, e.g. 'Morning inbox digest'"),
           prompt: z
@@ -1552,6 +1623,7 @@ export class BotAgent extends Think<Env, BotState> {
             ),
           cron: z.string().optional(),
           at: z.string().optional(),
+          event: z.object({ source: z.string().trim().min(1).max(60) }).optional(),
           onlyNew: z
             .boolean()
             .optional()
@@ -1578,15 +1650,16 @@ export class BotAgent extends Think<Env, BotState> {
               "For 'tell me when X changes': checked before each run without using the model. The first check records a baseline, unchanged output skips the run, and a change runs you with the before and after."
             ),
         }),
-        execute: async ({ name, prompt, cron, at, onlyNew, watch }) => {
-          if (!cron === !at) {
-            return { error: "Provide exactly one of `cron` or `at`." }
+        execute: async ({ name, prompt, cron, at, event, onlyNew, watch }) => {
+          if ([cron, at, event].filter(Boolean).length !== 1) {
+            return { error: "Provide exactly one of `cron`, `at`, or `event`." }
           }
           const routine = await this.addRoutine({
             name,
             prompt,
-            when: (cron ?? at)!,
-            kind: cron ? "cron" : "once",
+            when: event ? `event:${event.source}` : (cron ?? at)!,
+            kind: event ? "event" : cron ? "cron" : "once",
+            ...(event ? { event } : {}),
             ...(onlyNew ? { onlyNew: true } : {}),
             ...(watch ? { watch } : {}),
           })
@@ -1603,6 +1676,7 @@ export class BotAgent extends Think<Env, BotState> {
           prompt: z.string().optional(),
           cron: z.string().optional(),
           at: z.string().optional(),
+          event: z.object({ source: z.string().trim().min(1).max(60) }).optional(),
           onlyNew: z.boolean().optional(),
           watch: z
             .union([
@@ -1625,12 +1699,13 @@ export class BotAgent extends Think<Env, BotState> {
               "Pass null to stop watching. For 'tell me when X changes': checked before each run without using the model. The first check records a baseline, unchanged output skips the run, and a change runs you with the before and after."
             ),
         }),
-        execute: async ({ id, cron, at, ...patch }) => {
+        execute: async ({ id, cron, at, event, ...patch }) => {
           if (cron && at) {
             return { error: "Provide at most one of `cron` or `at`." }
           }
           const routine = await this.updateRoutine(id, {
             ...patch,
+            ...(event !== undefined ? { event } : {}),
             ...(cron ? { when: cron, kind: "cron" as const } : {}),
             ...(at ? { when: at, kind: "once" as const } : {}),
           })
@@ -2602,6 +2677,19 @@ export class BotAgent extends Think<Env, BotState> {
       ctx.toolName === "app_tool_call"
         ? String((ctx.input as { tool?: string } | undefined)?.tool ?? "")
         : ctx.toolName
+    const currentUser = this.messages.findLast((message) => message.role === "user")
+    if (metaOf(currentUser).testOnly === true) {
+      const safe =
+        (READ_ONLY_TOOLS.has(ctx.toolName) && ctx.toolName !== "ask_user") ||
+        this.#readOnlyAppTools.has(ruled)
+      if (!safe) {
+        return {
+          action: "block",
+          reason:
+            "This is a routine test run. Side-effecting tools are disabled; describe what you would do instead.",
+        }
+      }
+    }
     if (ctx.toolName === "app_tools_search") {
       // Searching the catalog touches nothing.
     } else if (!readOnlySecretCall && this.decide(ruled) === "block") {
@@ -3089,6 +3177,7 @@ export class BotAgent extends Think<Env, BotState> {
     text: string,
     options: {
       background?: boolean
+      testOnly?: boolean
       key?: string
       hops?: number
       routine?: MessageMeta["routine"]
@@ -3098,6 +3187,7 @@ export class BotAgent extends Think<Env, BotState> {
       origin,
       at: Date.now(),
       ...(options.background ? { background: true } : {}),
+      ...(options.testOnly ? { testOnly: true } : {}),
       ...(options.hops ? { hops: options.hops } : {}),
       ...(options.routine ? { routine: options.routine } : {}),
     }
@@ -3130,6 +3220,34 @@ export class BotAgent extends Think<Env, BotState> {
       { key: delivery.key, hops: delivery.hops }
     )
     return saved
+  }
+
+  /** Run one visible group-chat turn while keeping tools and memory on this bot. */
+  async receiveGroupMessage(
+    groupId: string,
+    groupName: string,
+    history: string,
+    instruction: string,
+    delivery: { key: string; hops?: number; files?: BotAttachment[] }
+  ): Promise<string> {
+    const saved = await this.saveAttachments(groupName, delivery)
+    const attachments = saved.length
+      ? `\n\nShared files copied into your workspace:\n${saved.map((path) => `- ${path}`).join("\n")}`
+      : ""
+    await this.submitAs(
+      { kind: "group", name: groupName, groupId },
+      `Shared group conversation (latest messages):\n${history}\n\n${instruction}${attachments}`,
+      { key: delivery.key, hops: delivery.hops }
+    )
+    const reply = this.messages.findLast((message) => message.role === "assistant")
+    const text = reply?.parts
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join("\n")
+      .trim()
+    if (text) return text
+    return this.hasPendingApproval()
+      ? `I'm waiting for an approval. Open ${this.state.name} to review it.`
+      : "I couldn't produce a reply. Check my conversation for details."
   }
 
   /**
@@ -3226,7 +3344,11 @@ export class BotAgent extends Think<Env, BotState> {
     await this.startRoutineRun(payload, 2)
   }
 
-  private async startRoutineRun(payload: RoutinePayload, attempt: number) {
+  private async startRoutineRun(
+    payload: RoutinePayload,
+    attempt: number,
+    testOnly = false
+  ) {
     const now = Date.now()
     const busy = this.sql<{ id: string }>`SELECT id FROM routine_runs
       WHERE routine_id = ${payload.id} AND status = 'running'
@@ -3242,7 +3364,7 @@ export class BotAgent extends Think<Env, BotState> {
       return
     }
     let changeNote = ""
-    if (payload.watch) {
+    if (payload.watch && !testOnly) {
       const check = await this.checkWatch(payload.id, payload.watch)
       if (check.status !== "changed") {
         // No model call: record why, and stop here.
@@ -3261,7 +3383,9 @@ export class BotAgent extends Think<Env, BotState> {
     this.trimRoutineRuns()
     await this.submitAs(
       { kind: "routine", name: payload.name },
-      routinePrompt({
+      (testOnly
+        ? "[TEST RUN] Inspect the routine setup and simulate its work. Do not perform external writes, send messages, change files outside your own temporary test data, or take other side effects. Clearly report what would happen.\n\n"
+        : "") + routinePrompt({
         id: payload.id,
         name: payload.name,
         prompt: payload.prompt,
@@ -3271,6 +3395,7 @@ export class BotAgent extends Think<Env, BotState> {
       }) + changeNote,
       {
         background: true,
+        testOnly,
         // One submission per routine, attempt and minute: an alarm that
         // fires twice for the same slot does not start a second run.
         key: `routine:${payload.id}:${attempt}:${Math.floor(now / 60_000)}`,
@@ -3409,9 +3534,12 @@ export class BotAgent extends Think<Env, BotState> {
     )
     const next = this.nextRoutineRun(run.id)
     const nextIsSoon = next !== null && next - now < ROUTINE_RETRY_SKIP_MS
+    const eventRoutine =
+      this.state.routines.find((routine) => routine.id === run.id)?.kind ===
+      "event"
     // Retry only a run that failed before touching anything, so a retry can
     // never repeat a side effect.
-    if (run.attempt === 1 && !didWork && !nextIsSoon) {
+    if (!eventRoutine && run.attempt === 1 && !didWork && !nextIsSoon) {
       const routine = this.state.routines.find((r) => r.id === run.id)
       const payload: RoutinePayload = routine
         ? {
@@ -3494,6 +3622,37 @@ export class BotAgent extends Think<Env, BotState> {
       : this
           .sql<RoutineRunRow>`SELECT * FROM routine_runs ORDER BY started_at DESC LIMIT 50`
     return rows.map(toRoutineRun)
+  }
+
+  @callable()
+  async testRoutine(routineId: string) {
+    const routine = this.state.routines.find((item) => item.id === routineId)
+    if (!routine) throw new Error("Routine not found.")
+    if (routine.kind === "event") {
+      const eventId = `test-${crypto.randomUUID()}`
+      const path = `/workspace/inbox/webhooks/test-${routine.id}.txt`
+      const body = JSON.stringify({
+        test: true,
+        instruction: "This is a test event. Do not make side-effecting changes.",
+      })
+      await this.workspace.fs.mkdir("/workspace/inbox/webhooks", { recursive: true })
+      await this.workspace.fs.writeFile(path, body)
+      await this.startEventRoutine(routine, routine.event?.source ?? "test", path, body, eventId, true)
+    } else {
+      await this.startRoutineRun(
+        {
+          id: routine.id,
+          name: routine.name,
+          prompt: routine.prompt,
+          kind: routine.kind,
+          ...(routine.onlyNew ? { onlyNew: true } : {}),
+          ...(routine.watch ? { watch: routine.watch } : {}),
+        },
+        1,
+        true
+      )
+    }
+    return { accepted: true, message: "Test run started. Review its result and run history before relying on it." }
   }
 
   /** Recent durable user-started tasks, newest first. */
@@ -3747,7 +3906,7 @@ export class BotAgent extends Think<Env, BotState> {
   /** Durable Object RPC from `/api/hooks/...`. False means a bad token. */
   async receiveWebhook(
     token: string,
-    event: { source: string; contentType: string; body: string }
+    event: { source: string; contentType: string; body: string; eventId?: string }
   ): Promise<boolean> {
     if (!timingSafeEqual(token, this.webhookToken())) return false
     const body = event.body.slice(0, MAX_WEBHOOK_BYTES)
@@ -3764,6 +3923,18 @@ export class BotAgent extends Think<Env, BotState> {
       recursive: true,
     })
     await this.workspace.fs.writeFile(path, pretty)
+    const eventId = event.eventId?.trim().slice(0, 120) || crypto.randomUUID()
+    const matching = this.state.routines.filter(
+      (routine) =>
+        routine.kind === "event" &&
+        routine.event?.source.toLowerCase() === event.source.toLowerCase()
+    )
+    if (matching.length) {
+      for (const routine of matching) {
+        await this.startEventRoutine(routine, event.source, path, pretty, eventId)
+      }
+      return true
+    }
     await this.submitAs(
       { kind: "webhook", name: event.source },
       webhookPrompt({
@@ -3774,6 +3945,56 @@ export class BotAgent extends Think<Env, BotState> {
       { background: true }
     )
     return true
+  }
+
+  private async startEventRoutine(
+    routine: Routine,
+    source: string,
+    path: string,
+    body: string,
+    eventId: string,
+    testOnly = false
+  ) {
+    const seen = this.sql<{ event_key: string }>`SELECT event_key FROM routine_events
+      WHERE routine_id = ${routine.id} AND event_key = ${eventId}`[0]
+    if (seen) return
+    this.sql`INSERT INTO routine_events (routine_id, event_key, received_at)
+      VALUES (${routine.id}, ${eventId}, ${Date.now()})`
+    const now = Date.now()
+    const runId = crypto.randomUUID()
+    const busy = this.sql<{ id: string }>`SELECT id FROM routine_runs
+      WHERE routine_id = ${routine.id} AND status = 'running'
+        AND started_at > ${now - ROUTINE_OVERLAP_MS} LIMIT 1`
+    if (busy.length) {
+      this.sql`INSERT INTO routine_runs
+        (id, routine_id, name, started_at, finished_at, status, attempt, note)
+        VALUES (${runId}, ${routine.id}, ${routine.name}, ${now}, ${now}, 'skipped', 1,
+          ${"Skipped because the previous event run is still active."})`
+      return
+    }
+    this.sql`INSERT INTO routine_runs (id, routine_id, name, started_at, status, attempt)
+      VALUES (${runId}, ${routine.id}, ${routine.name}, ${now}, 'running', 1)`
+    this.trimRoutineRuns()
+    await this.submitAs(
+      { kind: "routine", name: routine.name },
+      (testOnly
+        ? "[TEST RUN] Inspect the routine setup and simulate its work. Do not perform external writes, send messages, change files outside your own temporary test data, or take other side effects. Clearly report what would happen.\n\n"
+        : "") + routinePrompt({
+        id: routine.id,
+        name: routine.name,
+        prompt: routine.prompt,
+        onlyNew: routine.onlyNew === true,
+        reported: routine.onlyNew ? this.reportedFor(routine.id) : [],
+        timeZone: this.state.proactive.timezone,
+      }) +
+        `\n\nWebhook event source: ${source}\nEvent payload file: ${path}\nEvent payload:\n${clip(body, MAX_INBOUND_CHARS)}`,
+      {
+        background: true,
+        testOnly,
+        key: `event:${routine.id}:${eventId}`,
+        routine: { id: routine.id, runId, attempt: 1 },
+      }
+    )
   }
 
   /** Schedule callback. */
@@ -3795,6 +4016,11 @@ export class BotAgent extends Think<Env, BotState> {
       kind: routine.kind,
       ...(routine.onlyNew ? { onlyNew: true } : {}),
       ...(routine.watch ? { watch: routine.watch } : {}),
+      ...(routine.event ? { event: routine.event } : {}),
+    }
+    if (routine.kind === "event") {
+      if (!routine.event?.source.trim()) throw new Error("An event source is required.")
+      return
     }
     const when = routine.kind === "cron" ? routine.when : new Date(routine.when)
     if (when instanceof Date && Number.isNaN(when.getTime())) {
@@ -3836,6 +4062,12 @@ export class BotAgent extends Think<Env, BotState> {
     if (patch.when && patch.kind) {
       next.when = patch.when
       next.kind = patch.kind
+      delete next.event
+    }
+    if (patch.event) {
+      next.event = patch.event
+      next.kind = "event"
+      next.when = `event:${patch.event.source}`
     }
     if (patch.onlyNew !== undefined) {
       if (patch.onlyNew) next.onlyNew = true
