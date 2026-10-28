@@ -607,8 +607,13 @@ export class UserHub extends Agent<Env, HubState> {
             at: now,
           }]
         }
-        if (waiting) {
-          const text = waiting.parts
+        const approvalParts = (
+          waiting as unknown as {
+            parts?: Array<{ type: string; text?: string }>
+          } | null
+        )?.parts ?? []
+        if (approvalParts.length) {
+          const text = approvalParts
             .map((part) => (part.type === "text" ? part.text : ""))
             .join(" ")
             .trim()
