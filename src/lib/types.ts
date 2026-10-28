@@ -88,12 +88,52 @@ export interface AppCatalog {
 export interface HubState {
   bots: BotSummary[]
   connections: Connection[]
+  /** Shared group conversations in this workspace. */
+  groups?: GroupChatSummary[]
   /** The currently connected UserHub is a private or shared workspace. */
   workspace?: WorkspaceInfo
   /** Account-wide model choice. Absent on hubs created before models were configurable. */
   models?: ModelSettings
   /** The deployment's own models and gateway, refreshed on every start. */
   deployment?: DeploymentModels
+}
+
+export interface GroupChatSummary {
+  id: string
+  name: string
+  botIds: string[]
+  updatedAt: number
+  preview: string
+}
+
+export interface GroupChatMessage {
+  id: string
+  senderId: string
+  senderName: string
+  role: "user" | "assistant" | "system"
+  text: string
+  at: number
+  botId?: string
+}
+
+export interface ProjectFileSummary {
+  id: string
+  name: string
+  contentType: string
+  size: number
+  sharedBy: string
+  sharedAt: number
+}
+
+export interface AttentionItem {
+  id: string
+  botId: string
+  botName: string
+  avatar: BotAvatarKind
+  kind: "approval" | "task" | "routine" | "open-item"
+  title: string
+  detail: string
+  at: number
 }
 
 export type RulePolicy = "allow" | "ask" | "block"
@@ -142,11 +182,13 @@ export interface Routine {
   prompt: string
   /** Cron expression, or an ISO date for a one-off. */
   when: string
-  kind: "cron" | "once"
+  kind: "cron" | "once" | "event"
   /** Only report what earlier runs did not, and stay quiet otherwise. */
   onlyNew?: boolean
   /** Check this first and only run when its output changed. */
   watch?: RoutineWatch
+  /** An event routine listens to a source name sent to this bot's webhook. */
+  event?: { source: string }
 }
 
 /** A cheap check a routine runs before waking the model. */
@@ -270,10 +312,11 @@ export interface BotState {
  * thread hides the trigger and shows only what the bot chose to say.
  */
 export interface MessageOrigin {
-  kind: "bot" | "routine" | "task" | "check-in" | "email" | "webhook" | "app" | "crawl"
+  kind: "bot" | "routine" | "task" | "check-in" | "email" | "webhook" | "app" | "crawl" | "group"
   /** Bot or routine name, email sender, webhook source, app name, or crawled host. */
   name: string
   avatar?: BotAvatarKind
+  groupId?: string
 }
 
 /** Fields this app stamps on `UIMessage.metadata`. */
@@ -283,6 +326,8 @@ export interface MessageMeta {
   at?: number
   /** Part of a turn the user did not start. */
   background?: boolean
+  /** A routine preview: block tools that can cause side effects. */
+  testOnly?: boolean
   /** On a finished reply: how long the bot worked on it. */
   durationMs?: number
   /** Bot-to-bot messages: how many bots this chain has passed through. */

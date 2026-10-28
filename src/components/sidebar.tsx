@@ -15,6 +15,8 @@ import {
   CaretDownIcon,
   GearSixIcon,
   MagnifyingGlassIcon,
+  MessageIcon,
+  FileIcon,
   PlusIcon,
 } from "@/components/icons"
 import { ApprovalPopover } from "@/components/approval-popover"
@@ -273,6 +275,39 @@ export function Sidebar() {
             }
           />
         </div>
+      </div>
+
+      <div className="px-(--inset) pt-1">
+        <Link
+          to="/settings"
+          search={{ tab: "groups" }}
+          className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-kumo-subtle hover:bg-(--fill-hover) hover:text-kumo-default"
+        >
+          <MessageIcon size={16} />
+          <span>Group chats</span>
+          {(hub.state.groups?.length ?? 0) > 0 ? (
+            <span className="ml-auto text-xs tabular-nums">{hub.state.groups?.length}</span>
+          ) : null}
+        </Link>
+        <Link
+          to="/settings"
+          search={{ tab: "attention" }}
+          className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-kumo-subtle hover:bg-(--fill-hover) hover:text-kumo-default"
+        >
+          <BellRingingIcon size={16} />
+          <span>Needs me</span>
+          {hub.state.bots.some((bot) => bot.status === "action_needed") ? (
+            <span className="ml-auto size-2 rounded-full bg-kumo-warning" aria-label="Needs attention" />
+          ) : null}
+        </Link>
+        <Link
+          to="/settings"
+          search={{ tab: "project" }}
+          className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-kumo-subtle hover:bg-(--fill-hover) hover:text-kumo-default"
+        >
+          <FileIcon size={16} />
+          <span>Project files</span>
+        </Link>
       </div>
 
       <nav

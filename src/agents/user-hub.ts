@@ -8,6 +8,10 @@ import { BOT_AVATARS, NEW_BOT_NAME, botInstanceName } from "@/lib/types"
 import type {
   AppCatalog,
   AppTool,
+  AttentionItem,
+  GroupChatMessage,
+  GroupChatSummary,
+  ProjectFileSummary,
   BotAttachment,
   BotSummary,
   Connection,
@@ -22,6 +26,9 @@ const READ_VERBS =
   /(^|[_\-.])(get|list|search|read|fetch|find|query|lookup|describe|view|show|count)([_\-.]|$)/i
 const WRITE_VERBS =
   /(^|[_\-.])(send|create|delete|remove|update|edit|post|write|set|move|archive|reply|forward|draft|cancel|pay|approve|invite|share|execute|run)([_\-.]|$)/i
+const DAY_MS = 86_400_000
+const PROJECT_FILE_MAX_BYTES = 5 * 1024 * 1024
+const PROJECT_FILE_TOTAL_BYTES = 50 * 1024 * 1024
 
 /**
  * Background turns may only use read-only app tools. Servers that do not
@@ -34,6 +41,33 @@ function looksReadOnly(name: string) {
 /** MCP server id for a connection; it namespaces the connection's tools. */
 function serverId(connectionId: string) {
   return `c${connectionId}`
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function safeProjectFileName(value: string) {
+  const name = value.split(/[\\/]/).at(-1)?.replace(/[\u0000-\u001f\u007f]/g, "").trim()
+  if (!name || name === "." || name === "..") throw new Error("Choose a valid file name.")
+  return name.slice(0, 180)
+}
+
+function encodeBase64(bytes: Uint8Array) {
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
+function decodeBase64(value: string) {
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes
 }
 
 /**
@@ -57,9 +91,39 @@ export class UserHub extends Agent<Env, HubState> {
       data TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`
+    this.sql`CREATE TABLE IF NOT EXISTS group_chats (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      bot_ids TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      preview TEXT NOT NULL DEFAULT ''
+    )`
+    this.sql`CREATE TABLE IF NOT EXISTS group_chat_messages (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      sender_name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      bot_id TEXT,
+      text TEXT NOT NULL,
+      at INTEGER NOT NULL
+    )`
+    this.sql`CREATE INDEX IF NOT EXISTS group_messages_by_time
+      ON group_chat_messages (group_id, at)`
+    this.sql`CREATE TABLE IF NOT EXISTS project_files (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      shared_by TEXT NOT NULL,
+      shared_at INTEGER NOT NULL,
+      content TEXT NOT NULL
+    )`
     // The deployment's MODEL or gateway may have changed since last start.
     this.setState({
       ...this.state,
+      groups: this.groups(),
       workspace:
         this.name === this.env.HOUSEHOLD_WORKSPACE_ID
           ? { id: this.name, name: "Our Home", kind: "household" }
@@ -88,6 +152,34 @@ export class UserHub extends Agent<Env, HubState> {
       },
     })
     await this.restoreLegacyConnections()
+  }
+
+  private groups(): GroupChatSummary[] {
+    return this.sql<{
+      id: string
+      name: string
+      bot_ids: string
+      updated_at: number
+      preview: string
+    }>`SELECT id, name, bot_ids, updated_at, preview FROM group_chats
+      ORDER BY updated_at DESC`.map((row) => ({
+      id: row.id,
+      name: row.name,
+      botIds: JSON.parse(row.bot_ids) as string[],
+      updatedAt: row.updated_at,
+      preview: row.preview,
+    }))
+  }
+
+  private projectFiles(): ProjectFileSummary[] {
+    return this.sql<ProjectFileSummary>`SELECT id, name, content_type AS contentType,
+      size, shared_by AS sharedBy, shared_at AS sharedAt
+      FROM project_files ORDER BY shared_at DESC LIMIT 100`
+  }
+
+  /** Bot-facing RPC: list shared file metadata for prompt context and tools. */
+  async listProjectFiles(): Promise<ProjectFileSummary[]> {
+    return this.projectFiles()
   }
 
   /** Remember the app's origin to build MCP OAuth callback URLs. */
@@ -166,6 +258,304 @@ export class UserHub extends Agent<Env, HubState> {
   }
 
   @callable()
+  async createGroup(name: string, botIds: string[]): Promise<GroupChatSummary> {
+    const selected = [...new Set(botIds)].filter((id) =>
+      this.state.bots.some((bot) => bot.id === id)
+    )
+    if (selected.length < 2) throw new Error("Choose at least two bots.")
+    if (selected.length > 6) throw new Error("A group can have up to six bots.")
+    const label = name.trim().slice(0, 60) || "New group"
+    const now = Date.now()
+    const group: GroupChatSummary = {
+      id: crypto.randomUUID().slice(0, 12),
+      name: label,
+      botIds: selected,
+      updatedAt: now,
+      preview: "Start a conversation with your bots",
+    }
+    this.sql`INSERT INTO group_chats
+      (id, name, bot_ids, created_at, updated_at, preview)
+      VALUES (${group.id}, ${group.name}, ${JSON.stringify(selected)}, ${now}, ${now}, ${group.preview})`
+    this.setState({ ...this.state, groups: [group, ...(this.state.groups ?? [])] })
+    return group
+  }
+
+  @callable()
+  async getGroupMessages(groupId: string): Promise<GroupChatMessage[]> {
+    if (!(this.state.groups ?? []).some((group) => group.id === groupId)) {
+      throw new Error("Group not found.")
+    }
+    return this.sql<GroupChatMessage>`SELECT id, sender_id AS senderId,
+      sender_name AS senderName, role, text, at, bot_id AS botId
+      FROM group_chat_messages WHERE group_id = ${groupId}
+      ORDER BY at ASC LIMIT 200`
+  }
+
+  @callable()
+  async uploadProjectFile(input: {
+    name: string
+    contentType?: string
+    base64: string
+  }): Promise<ProjectFileSummary> {
+    if (input.base64.length > Math.ceil(PROJECT_FILE_MAX_BYTES * 4 / 3) + 4) {
+      throw new Error("Shared files must be smaller than 5 MB.")
+    }
+    let bytes: Uint8Array
+    try {
+      bytes = decodeBase64(input.base64)
+    } catch {
+      throw new Error("File data was not valid base64.")
+    }
+    return this.saveProjectFile(input.name, input.contentType ?? "application/octet-stream", bytes, "You")
+  }
+
+  @callable()
+  async getProjectFiles() {
+    return this.projectFiles()
+  }
+
+  @callable()
+  async removeProjectFile(id: string) {
+    this.sql`DELETE FROM project_files WHERE id = ${id}`
+    return this.projectFiles()
+  }
+
+  @callable()
+  async downloadProjectFile(id: string) {
+    const row = this.sql<{
+      id: string
+      name: string
+      contentType: string
+      size: number
+      sharedBy: string
+      sharedAt: number
+      base64: string
+    }>`SELECT id, name, content_type AS contentType, size,
+      shared_by AS sharedBy, shared_at AS sharedAt, content AS base64
+      FROM project_files WHERE id = ${id}`[0]
+    if (!row) return null
+    const { base64, ...file } = row
+    return { file, base64 }
+  }
+
+  /** Bot-facing RPC: store a file that its owner approved for workspace sharing. */
+  async saveProjectFile(
+    name: string,
+    contentType: string,
+    bytes: Uint8Array,
+    sharedBy: string
+  ): Promise<ProjectFileSummary> {
+    if (!(bytes instanceof Uint8Array)) throw new Error("File data must be binary.")
+    if (bytes.byteLength < 1 || bytes.byteLength > PROJECT_FILE_MAX_BYTES) {
+      throw new Error("Shared files must be smaller than 5 MB.")
+    }
+    const total = this.sql<{ bytes: number }>`SELECT COALESCE(SUM(size), 0) AS bytes
+      FROM project_files`[0]?.bytes ?? 0
+    if (total + bytes.byteLength > PROJECT_FILE_TOTAL_BYTES) {
+      throw new Error("Shared project files are limited to 50 MB total. Remove an old file first.")
+    }
+    const fileName = safeProjectFileName(name)
+    const id = crypto.randomUUID().slice(0, 12)
+    const sharedAt = Date.now()
+    const summary: ProjectFileSummary = {
+      id,
+      name: fileName,
+      contentType: contentType.slice(0, 120) || "application/octet-stream",
+      size: bytes.byteLength,
+      sharedBy: sharedBy.slice(0, 60),
+      sharedAt,
+    }
+    this.sql`INSERT INTO project_files
+      (id, name, content_type, size, shared_by, shared_at, content)
+      VALUES (${id}, ${fileName}, ${summary.contentType}, ${summary.size}, ${summary.sharedBy}, ${sharedAt}, ${encodeBase64(bytes)})`
+    this.sql`DELETE FROM project_files WHERE id NOT IN
+      (SELECT id FROM project_files ORDER BY shared_at DESC LIMIT 100)`
+    return summary
+  }
+
+  /** Bot-facing RPC: read one explicitly shared workspace file. */
+  async getProjectFile(id: string) {
+    const row = this.sql<{
+      id: string
+      name: string
+      contentType: string
+      size: number
+      sharedBy: string
+      sharedAt: number
+      base64: string
+    }>`SELECT id, name, content_type AS contentType, size,
+      shared_by AS sharedBy, shared_at AS sharedAt, content AS base64
+      FROM project_files WHERE id = ${id}`[0]
+    if (!row) return null
+    const { base64, ...file } = row
+    return { file, bytes: decodeBase64(base64) }
+  }
+
+  @callable()
+  async sendGroupMessage(groupId: string, text: string) {
+    const body = text.trim().slice(0, 4000)
+    if (!body) throw new Error("Message is empty.")
+    const group = (this.state.groups ?? []).find((item) => item.id === groupId)
+    if (!group) throw new Error("Group not found.")
+    const id = crypto.randomUUID()
+    const now = Date.now()
+    this.storeGroupMessage({
+      id,
+      groupId,
+      senderId: "user",
+      senderName: "You",
+      role: "user",
+      text: body,
+      at: now,
+    })
+    const nextGroup = { ...group, updatedAt: now, preview: body.slice(0, 140) }
+    this.setState({
+      ...this.state,
+      groups: [nextGroup, ...this.groups().filter((item) => item.id !== groupId)],
+    })
+    const participants = group.botIds
+      .map((botId) => this.state.bots.find((bot) => bot.id === botId))
+      .filter((bot): bot is BotSummary => !!bot)
+    const mentions = participants.filter((bot) =>
+      new RegExp(`(^|\\s)@${escapeRegex(bot.name)}(?=$|\\s|[,.:!?])`, "i").test(body)
+    )
+    const recipients = mentions.length ? mentions : participants
+    const history = this.sql<{ sender_name: string; text: string }>`SELECT sender_name, text
+      FROM group_chat_messages WHERE group_id = ${groupId}
+      ORDER BY at DESC LIMIT 20`.reverse()
+    const context = history
+      .map((message) => `${message.sender_name}: ${message.text}`)
+      .join("\n")
+    await Promise.all(
+      recipients.map(async (recipient) => {
+        const stamp = Date.now()
+        try {
+          const reply = await (await this.bot(recipient.id)).receiveGroupMessage(
+            group.id,
+            group.name,
+            context,
+            `@${recipient.name} respond to the latest message. If another bot should own a part, use message_bot to delegate it. Keep your response concise and include your findings here.`,
+            { key: `group:${group.id}:${id}:${recipient.id}` }
+          )
+          if (reply.trim()) {
+            this.storeGroupMessage({
+              id: crypto.randomUUID(),
+              groupId,
+              senderId: recipient.id,
+              senderName: recipient.name,
+              role: "assistant",
+              text: reply.slice(0, 8000),
+              at: stamp,
+              botId: recipient.id,
+            })
+          }
+        } catch (err) {
+          this.storeGroupMessage({
+            id: crypto.randomUUID(),
+            groupId,
+            senderId: recipient.id,
+            senderName: recipient.name,
+            role: "system",
+            text: `Could not reach ${recipient.name}: ${err instanceof Error ? err.message : String(err)}`.slice(0, 500),
+            at: Date.now(),
+            botId: recipient.id,
+          })
+        }
+      })
+    )
+    const latest = this.sql<{ text: string }>`SELECT text FROM group_chat_messages
+      WHERE group_id = ${groupId} ORDER BY at DESC LIMIT 1`[0]?.text
+    const updated = this.groups().find((item) => item.id === groupId)
+    if (updated) {
+      this.setState({
+        ...this.state,
+        groups: [
+          { ...updated, preview: (latest ?? body).slice(0, 140) },
+          ...this.groups().filter((item) => item.id !== groupId),
+        ],
+      })
+    }
+    return this.getGroupMessages(groupId)
+  }
+
+  private storeGroupMessage(
+    message: GroupChatMessage & { groupId: string }
+  ) {
+    this.sql`INSERT INTO group_chat_messages
+      (id, group_id, sender_id, sender_name, role, bot_id, text, at)
+      VALUES (${message.id}, ${message.groupId}, ${message.senderId}, ${message.senderName},
+        ${message.role}, ${message.botId ?? null}, ${message.text}, ${message.at})`
+    this.sql`UPDATE group_chats SET updated_at = ${message.at}, preview = ${message.text.slice(0, 140)}
+      WHERE id = ${message.groupId}`
+    this.sql`DELETE FROM group_chat_messages WHERE group_id = ${message.groupId}
+      AND id NOT IN (SELECT id FROM group_chat_messages
+        WHERE group_id = ${message.groupId} ORDER BY at DESC LIMIT 200)`
+  }
+
+  /** Route a bot-to-bot handoff through the same visible group transcript. */
+  async relayGroupMessage(
+    groupId: string,
+    fromBotId: string,
+    to: string,
+    text: string,
+    delivery: { key?: string; hops?: number; files?: BotAttachment[] } = {}
+  ) {
+    const group = (this.state.groups ?? []).find((item) => item.id === groupId)
+    const from = this.state.bots.find((bot) => bot.id === fromBotId)
+    const needle = to.trim().toLowerCase()
+    const target = this.state.bots.find(
+      (bot) =>
+        group?.botIds.includes(bot.id) &&
+        (bot.id === needle || bot.name.toLowerCase() === needle)
+    )
+    if (!group || !from || !group.botIds.includes(fromBotId)) {
+      return { delivered: false, error: "This bot is not a member of that group." }
+    }
+    if (!target) return { delivered: false, error: "Choose a bot in this group." }
+    if (target.id === fromBotId) return { delivered: false, error: "A bot cannot message itself." }
+    const handoff = `${from.name} asked ${target.name} to take this step:\n${text}`
+    this.storeGroupMessage({
+      id: crypto.randomUUID(),
+      groupId,
+      senderId: from.id,
+      senderName: from.name,
+      role: "assistant",
+      text: handoff.slice(0, 8000),
+      at: Date.now(),
+      botId: from.id,
+    })
+    const history = this.sql<{ sender_name: string; text: string }>`SELECT sender_name, text
+      FROM group_chat_messages WHERE group_id = ${groupId}
+      ORDER BY at DESC LIMIT 20`.reverse()
+      .map((message) => `${message.sender_name}: ${message.text}`)
+      .join("\n")
+    const reply = await (await this.bot(target.id)).receiveGroupMessage(
+      groupId,
+      group.name,
+      history,
+      `Respond to ${from.name}'s group handoff. Return your result in this shared conversation.`,
+      {
+        key: delivery.key ?? `group-handoff:${groupId}:${crypto.randomUUID()}`,
+        hops: delivery.hops,
+        files: delivery.files,
+      }
+    )
+    if (reply.trim()) {
+      this.storeGroupMessage({
+        id: crypto.randomUUID(),
+        groupId,
+        senderId: target.id,
+        senderName: target.name,
+        role: "assistant",
+        text: reply.slice(0, 8000),
+        at: Date.now(),
+        botId: target.id,
+      })
+    }
+    return { delivered: true, to: target.name, reply }
+  }
+
+  @callable()
   markRead(botId: string) {
     if (this.state.bots.find((b) => b.id === botId)?.unread) {
       this.patchBot(botId, { unread: false })
@@ -185,6 +575,116 @@ export class UserHub extends Agent<Env, HubState> {
       throw new Error("No such bot.")
     }
     await (await this.bot(botId)).answerApproval(approvalId, approved)
+  }
+
+  @callable()
+  async getAttentionSnapshot(): Promise<AttentionItem[]> {
+    const now = Date.now()
+    const snapshots = await Promise.all(
+      this.state.bots.map(async (summary) => {
+        const items: AttentionItem[] = []
+        let waiting: Awaited<ReturnType<BotAgent["waitingParts"]>>
+        let tasks: Awaited<ReturnType<BotAgent["getBackgroundTasks"]>>
+        let openItems: Awaited<ReturnType<BotAgent["listOpenItems"]>>
+        let routineRuns: Awaited<ReturnType<BotAgent["getRoutineRuns"]>>
+        try {
+          const bot = await this.bot(summary.id)
+          ;[waiting, tasks, openItems, routineRuns] = await Promise.all([
+            bot.waitingParts(),
+            bot.getBackgroundTasks(),
+            bot.listOpenItems(),
+            bot.getRoutineRuns(),
+          ])
+        } catch (err) {
+          return [{
+            id: `unavailable:${summary.id}`,
+            botId: summary.id,
+            botName: summary.name,
+            avatar: summary.avatar,
+            kind: "task" as const,
+            title: `${summary.name} could not be checked`,
+            detail: err instanceof Error ? err.message : "The bot is temporarily unavailable.",
+            at: now,
+          }]
+        }
+        const approvalParts = (
+          waiting as unknown as {
+            parts?: Array<{ type: string; text?: string }>
+          } | null
+        )?.parts ?? []
+        if (approvalParts.length) {
+          const text = approvalParts
+            .map((part) => (part.type === "text" ? part.text : ""))
+            .join(" ")
+            .trim()
+          items.push({
+            id: `approval:${summary.id}`,
+            botId: summary.id,
+            botName: summary.name,
+            avatar: summary.avatar,
+            kind: "approval",
+            title: "Approval needed",
+            detail: text || summary.preview || "A bot is waiting for your decision.",
+            at: summary.updatedAt,
+          })
+        }
+        for (const task of tasks) {
+          const taskStatus = String(task.status)
+          const failed = taskStatus === "error" || taskStatus === "failed"
+          const recentlyFinished = taskStatus === "complete" || taskStatus === "completed"
+          const happenedAt = task.completedAt ?? task.createdAt
+          if (
+            (failed && happenedAt <= now - 7 * DAY_MS) ||
+            (!failed && !(recentlyFinished && happenedAt > now - DAY_MS))
+          ) continue
+          items.push({
+            id: `task:${summary.id}:${task.id}`,
+            botId: summary.id,
+            botName: summary.name,
+            avatar: summary.avatar,
+            kind: "task",
+            title: failed ? `Task failed: ${task.title}` : `Task finished: ${task.title}`,
+            detail: task.error ?? "Open the bot to review the result.",
+            at: happenedAt,
+          })
+        }
+        for (const item of openItems) {
+          if (item.status !== "open" || !item.checkAfter || item.checkAfter > now) continue
+          items.push({
+            id: `open:${summary.id}:${item.id}`,
+            botId: summary.id,
+            botName: summary.name,
+            avatar: summary.avatar,
+            kind: "open-item",
+            title: item.title,
+            detail: item.note,
+            at: item.checkAfter,
+          })
+        }
+        const seenRoutines = new Set<string>()
+        for (const failedRun of routineRuns) {
+          const at = failedRun.finishedAt ?? failedRun.startedAt
+          if (
+            (failedRun.status !== "failed" && failedRun.status !== "retrying") ||
+            at < now - 7 * DAY_MS ||
+            seenRoutines.has(failedRun.routineId)
+          ) continue
+          seenRoutines.add(failedRun.routineId)
+          items.push({
+            id: `routine:${summary.id}:${failedRun.id}`,
+            botId: summary.id,
+            botName: summary.name,
+            avatar: summary.avatar,
+            kind: "routine",
+            title: `Routine needs attention: ${failedRun.name}`,
+            detail: failedRun.note || `Last run ${failedRun.status}.`,
+            at,
+          })
+        }
+        return items
+      })
+    )
+    return snapshots.flat().sort((a, b) => b.at - a.at)
   }
 
   @callable()

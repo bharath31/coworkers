@@ -21,6 +21,9 @@ function moment(at: number) {
 }
 
 function when(routine: Routine, hydrated: boolean) {
+  if (routine.kind === "event") {
+    return `On webhook: ${routine.event?.source ?? "event"}`
+  }
   // Schedules read in the viewer's zone, so only after hydration.
   if (!hydrated) return routine.kind === "once" ? "Once" : "Repeats"
   if (routine.kind === "once") return moment(new Date(routine.when).getTime())

@@ -18,6 +18,11 @@
 ## Follow-up
 
 - [ ] Continue validating browser, computer, durable execution, and team features.
-- [ ] Separate private workspaces and add a shared workspace.
+- [x] Separate private workspaces and add a shared workspace.
 - [ ] Configure email and supported app integrations.
-- [ ] Add routines, push notifications, reviewable execution history, and operational polish.
+- [x] Add visible multi-bot group chats with in-group delegation.
+- [x] Add a cross-bot attention inbox for approvals and actionable outcomes.
+- [x] Add webhook-triggered routines with run history and a dry-run test action.
+- [x] Add explicitly shared project files scoped to the current workspace.
+- [ ] End-to-end verify the new group, inbox, webhook routine, and project-file flows.
+- [ ] Continue operational acceptance for push notifications, recovery, costs, and data export.

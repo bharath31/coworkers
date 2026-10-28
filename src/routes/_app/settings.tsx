@@ -3,9 +3,12 @@ import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import { Button } from "@cloudflare/kumo/components/button"
 import { Tooltip } from "@cloudflare/kumo/components/tooltip"
 import { ConnectionsSettings } from "@/components/connections-settings"
+import { GroupChatsSettings } from "@/components/group-chats-settings"
 import { Group, Row } from "@/components/group"
+import { AttentionInbox } from "@/components/attention-inbox"
 import { SidebarSimpleIcon } from "@/components/icons"
 import { ModelsSettings } from "@/components/models-settings"
+import { ProjectFilesSettings } from "@/components/project-files-settings"
 import { SlidingTabs } from "@/components/sliding-tabs"
 import { useHub } from "@/lib/hub-context"
 import { setProfileName } from "@/lib/server-fns"
@@ -15,6 +18,9 @@ const TABS = [
   { value: "profile", label: "Profile" },
   { value: "models", label: "Models" },
   { value: "connections", label: "Connections" },
+  { value: "groups", label: "Groups" },
+  { value: "attention", label: "Needs me" },
+  { value: "project", label: "Project" },
 ] as const
 
 type Tab = (typeof TABS)[number]["value"]
@@ -81,7 +87,7 @@ export const Route = createFileRoute("/_app/settings")({
     search: Record<string, unknown>
   ): { tab?: Tab; error?: string; space?: string } => ({
     ...(typeof search.space === "string" ? { space: search.space } : {}),
-    ...(search.tab === "profile" || search.tab === "connections"
+    ...(search.tab === "profile" || search.tab === "connections" || search.tab === "groups" || search.tab === "attention" || search.tab === "project"
       ? { tab: search.tab }
       : {}),
     // Set by the sign-in callback when an app's OAuth flow fails.
@@ -117,7 +123,7 @@ function Settings() {
         </h1>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[640px] space-y-8 px-6 pt-4 pb-16">
+        <div className={`mx-auto space-y-8 px-6 pt-4 pb-16 ${tab === "groups" || tab === "attention" ? "max-w-[1100px]" : "max-w-[640px]"}`}>
           <div className="flex justify-center">
             <SlidingTabs
               tabs={[...TABS]}
@@ -137,6 +143,12 @@ function Settings() {
             <ProfileSettings />
           ) : tab === "models" ? (
             <ModelsSettings />
+          ) : tab === "groups" ? (
+            <GroupChatsSettings />
+          ) : tab === "attention" ? (
+            <AttentionInbox />
+          ) : tab === "project" ? (
+            <ProjectFilesSettings />
           ) : (
             <ConnectionsSettings error={error} />
           )}

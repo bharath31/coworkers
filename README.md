@@ -72,11 +72,14 @@ flowchart LR
 | Take over      | Bot hands you its browser to sign in. You click **I'm done**, it continues   |
 | Your apps      | Calls tools on connected MCP servers or Executor                             |
 | Rules          | Per action type: allow, ask first, or block                                  |
-| Routines       | Cron or one-off jobs. Can watch a URL/command and only wake when it changes   |
+| Routines       | Cron, one-off, or webhook-triggered jobs. Test a routine before relying on it |
 | Check-ins      | Wakes every few hours, speaks only if something's worth saying             |
 | Memory         | Its own memory + one shared across all your bots. Both have version history  |
 | Open items     | Tracks things it's waiting on until they're resolved                         |
-| Other bots     | Messages and files to other bots                                             |
+| Group chats    | Bring several bots into one visible conversation; mention a bot to direct a turn |
+| Needs me       | One inbox for approvals, background-task results, overdue follow-ups, and routine failures |
+| Project files  | Explicitly share bounded-size files across bots in the current workspace     |
+| Other bots     | Direct messages and files to other bots                                       |
 | Web apps       | Builds small sites (trackers, dashboards) on its own data, shareable by link |
 | Teach by demo  | Records you doing a task in its browser, saves it as a skill                 |
 | Secrets        | You type an API key in a masked card. The bot uses it but never sees it      |

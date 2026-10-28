@@ -147,10 +147,12 @@ function RunHistory({ runs, now }: { runs: RoutineRun[]; now: number }) {
 export function RoutineCard({
   routine,
   onDelete,
+  onTest,
   loadRuns,
 }: {
   routine: Routine
   onDelete?: () => void
+  onTest?: () => Promise<void>
   /** Recent runs, newest first. Absent where history is not shown. */
   loadRuns?: () => Promise<RoutineRun[]>
 }) {
@@ -170,6 +172,8 @@ export function RoutineCard({
   const hydrated = useHydrated()
   const now = useNow()
   const [expanded, setExpanded] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testError, setTestError] = useState<string | null>(null)
 
   const cron = useMemo(
     () => (routine.kind === "cron" ? parseCron(routine.when) : null),
@@ -180,17 +184,21 @@ export function RoutineCard({
       const t = new Date(routine.when).getTime()
       return t >= now && t < now + WINDOW ? [t] : []
     }
-    return cron ? runsBetween(cron, now, WINDOW) : []
+    return routine.kind === "cron" && cron ? runsBetween(cron, now, WINDOW) : []
   }, [cron, routine.kind, routine.when, now])
   const next =
     routine.kind === "once"
       ? new Date(routine.when).getTime()
-      : (runs[0] ?? (cron ? nextRun(cron, now) : null))
+      : routine.kind === "cron"
+        ? (runs[0] ?? (cron ? nextRun(cron, now) : null))
+        : null
 
   const schedule =
     routine.kind === "once"
       ? "Once"
-      : ((cron && describeCron(cron)) ?? "Custom schedule")
+      : routine.kind === "event"
+        ? `On webhook: ${routine.event?.source ?? "event"}`
+        : ((cron && describeCron(cron)) ?? "Custom schedule")
 
   return (
     <li className="border-t border-kumo-line px-4 py-4 first:border-t-0">
@@ -233,6 +241,13 @@ export function RoutineCard({
               </>
             ) : null}
           </p>
+          {routine.kind === "event" ? (
+            <p className="mt-1 text-xs text-kumo-subtle">
+              Send a POST to this bot’s webhook URL with{" "}
+              <code className="font-mono">?source={routine.event?.source ?? "event"}</code>.
+              {" "}Find the URL under Reach this bot.
+            </p>
+          ) : null}
         </div>
         {onDelete ? (
           <RowAction
@@ -252,6 +267,28 @@ export function RoutineCard({
           <div className="h-[62px]" />
         )}
         {hydrated ? <RunHistory runs={history} now={now} /> : null}
+        {onTest ? (
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              disabled={testing}
+              onClick={() => {
+                setTesting(true)
+                setTestError(null)
+                void onTest()
+                  .then(async () => setHistory((await loadRuns?.()) ?? history))
+                  .catch((err: unknown) => {
+                    setTestError(err instanceof Error ? err.message : String(err))
+                  })
+                  .finally(() => setTesting(false))
+              }}
+              className="rounded-full bg-(--fill-hover) px-3 py-1.5 text-xs font-medium text-kumo-default hover:bg-(--fill-active) disabled:opacity-50"
+            >
+              {testing ? "Starting test…" : "Test now"}
+            </button>
+            {testError ? <p role="alert" className="text-xs text-kumo-warning">{testError}</p> : null}
+          </div>
+        ) : null}
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
